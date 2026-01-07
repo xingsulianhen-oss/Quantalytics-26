@@ -1,7 +1,5 @@
-"""
-Parameter Optimization Script
-Automatically find optimal parameters for the trading strategy
-"""
+# Parameter Optimization Script
+# Automatically find optimal parameters for the trading strategy
 
 import pandas as pd
 import numpy as np
@@ -13,13 +11,6 @@ from itertools import product
 
 
 def optimize_strategy(csv_path, max_iterations=50):
-    """
-    Optimize strategy parameters using grid search
-    
-    Args:
-        csv_path: Path to CSV data file
-        max_iterations: Maximum optimization iterations
-    """
     print(f"\n{'='*70}")
     print(f"PARAMETER OPTIMIZATION - {os.path.basename(csv_path)}")
     print(f"{'='*70}\n")
