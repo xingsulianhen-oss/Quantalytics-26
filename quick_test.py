@@ -1,7 +1,5 @@
-"""
-Quick Test Runner - Test strategy on a subset of data for rapid validation
-Useful for debugging and quick parameter testing
-"""
+# Quick Test Runner - Test strategy on a subset of data for rapid validation
+# Useful for debugging and quick parameter testing
 
 import pandas as pd
 import numpy as np
