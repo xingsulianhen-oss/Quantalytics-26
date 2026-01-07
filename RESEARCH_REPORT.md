@@ -51,7 +51,7 @@ The strategy is built on the observation that precious metals markets exhibit bo
 ```
 ┌─────────────────────────────────────────┐
 │      Adaptive Momentum-Reversion        │
-│            Hybrid Strategy               │
+│            Hybrid Strategy              │
 └────────────┬────────────────────────────┘
              │
     ┌────────┴─────────┬──────────────┐
