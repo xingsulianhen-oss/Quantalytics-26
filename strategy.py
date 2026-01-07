@@ -22,10 +22,10 @@ class AdaptiveMomentumReversion(Strategy):
     sma_slow = 30            # Slow MA for trend
     vol_period = 20          # Volatility window
     
-    # Risk management - optimized R:R
+    # Risk management - balanced for both assets
     risk_pct = 0.02          # Risk 2% per trade
-    sl_atr_mult = 1.7        # Tighter stop: 1.7x ATR
-    tp_atr_mult = 5.0        # Higher TP: 5x ATR (1:2.9 R:R)
+    sl_atr_mult = 1.8        # Stop: 1.8x ATR
+    tp_atr_mult = 4.5        # TP: 4.5x ATR (1:2.5 R:R)
     max_trades_per_day = 15  # Allow reasonable trades
     
     def init(self):

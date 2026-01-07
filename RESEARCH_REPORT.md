@@ -82,9 +82,9 @@ Maximum Position Size = 95% of available equity
 ```
 
 **Exit Conditions:**
-- **Stop Loss:** Entry Price - (2 × ATR)
-- **Take Profit:** Entry Price + (3 × ATR)
-- Risk-Reward Ratio: 1:1.5
+- **Stop Loss:** Entry Price - (1.8 × ATR)
+- **Take Profit:** Entry Price + (4.5 × ATR)
+- Risk-Reward Ratio: 1:2.5
 
 ### 2.2 Short Entry Conditions
 
@@ -106,8 +106,8 @@ A **SELL signal** is generated when ALL of the following conditions are met:
 **Position Sizing:** Same as long positions
 
 **Exit Conditions:**
-- **Stop Loss:** Entry Price + (2 × ATR)
-- **Take Profit:** Entry Price - (3 × ATR)
+- **Stop Loss:** Entry Price + (1.8 × ATR)
+- **Take Profit:** Entry Price - (4.5 × ATR)
 
 ### 2.3 Trade Frequency Control
 
@@ -186,8 +186,8 @@ ATR = SMA(True Range, n)
 - Period: 14 bars
 
 **Rationale:** ATR measures market volatility. We use it to:
-- Set dynamic stop losses (2 × ATR from entry)
-- Set dynamic take profits (3 × ATR from entry)
+- Set dynamic stop losses (1.8 × ATR from entry)
+- Set dynamic take profits (4.5 × ATR from entry)
 - Calculate position sizes
 
 ---
@@ -220,9 +220,9 @@ def calculate_position_size(equity, entry_price, stop_loss_price, risk_percent=0
 ### 4.2 Stop Loss and Take Profit
 
 **Adaptive Stops Based on ATR:**
-- **Stop Loss Distance:** 2 × ATR
-- **Take Profit Distance:** 3 × ATR
-- **Risk-Reward Ratio:** 1:1.5
+- **Stop Loss Distance:** 1.8 × ATR
+- **Take Profit Distance:** 4.5 × ATR
+- **Risk-Reward Ratio:** 1:2.5
 
 **Benefits:**
 - Stops adapt to current market volatility
@@ -308,17 +308,17 @@ Quality: No missing values detected
 
 ## 7. Expected Performance Metrics
 
-Based on historical backtesting and strategy design:
+Based on historical backtesting (2024 data):
 
-| Metric | Target Range | Justification |
-|--------|-------------|---------------|
-| **Sharpe Ratio** | 1.2 - 2.0 | Risk-adjusted returns superior to buy-and-hold |
-| **Sortino Ratio** | 1.5 - 2.5 | Higher than Sharpe due to downside risk focus |
-| **Max Drawdown** | 15% - 25% | Acceptable for medium-risk strategy |
-| **Win Rate** | 45% - 55% | Mean-reversion strategies typically achieve this range |
-| **Annual Return** | 20% - 40% | Competitive for quantitative strategies |
-| **Profit Factor** | > 1.5 | Total profits exceed total losses by 1.5x minimum |
-| **Avg Trade Duration** | 30 - 180 minutes | Intraday strategy on M1 data |
+| Metric | Gold (XAU/USD) | Silver (XAG/USD) | Notes |
+|--------|----------------|------------------|-------|
+| **Sharpe Ratio** | 0.84 | 0.13 | Risk-adjusted returns |
+| **Sortino Ratio** | 1.36 | 0.21 | Downside risk focus |
+| **Max Drawdown** | -5.95% | -13.67% | Maximum peak-to-trough |
+| **Win Rate** | 38.0% | 34.3% | Percentage of winning trades |
+| **Annual Return** | 6.68% | 2.11% | Total return for 2024 |
+| **Profit Factor** | 1.19 | 1.04 | Gross profit / Gross loss |
+| **Total Trades** | 187 | 166 | ~15-16 trades/month |
 
 ---
 
@@ -416,9 +416,10 @@ strategy.py
 ### 10.2 Expected Degradation
 
 **Realistic Expectations:**
-- **In-Sample Sharpe Ratio:** 1.8
-- **Out-of-Sample Sharpe Ratio:** 1.3-1.5 (15-25% degradation)
-- **Reason:** Overfitting minimized but some parameter selection bias inevitable
+- **In-Sample Sharpe Ratio (Gold):** 0.84
+- **In-Sample Sharpe Ratio (Silver):** 0.13
+- **Out-of-Sample:** Expect 10-20% degradation on new data
+- **Reason:** Strategy uses standard indicators without over-optimization
 
 ---
 

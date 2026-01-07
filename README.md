@@ -35,8 +35,8 @@ This project implements a quantitative trading strategy for the **Quantalytics c
 
 **Risk Management**
 - Dynamic position sizing (2% risk per trade)
-- ATR-based stop-loss (2x ATR)
-- ATR-based take-profit (3x ATR)
+- ATR-based stop-loss (1.8x ATR)
+- ATR-based take-profit (4.5x ATR)
 - Daily trade limit (max 100 trades/day)
 
 **Cost Optimization**
@@ -343,5 +343,3 @@ df = pd.read_csv('data/XAUUSD_M1/DAT_MT_XAUUSD_M1_2024.csv',
 - [ ] Sentiment analysis integration
 - [ ] Portfolio optimization (Gold-Silver correlation trading)
 - [ ] Monte Carlo simulation for risk assessment
-
----
