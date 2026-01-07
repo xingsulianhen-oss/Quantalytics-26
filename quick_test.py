@@ -135,8 +135,8 @@ def compare_assets():
     print(f"{'='*70}\n")
     
     assets = {
-        'Gold': 'XAUUSD_M1/DAT_MT_XAUUSD_M1_2024.csv',
-        'Silver': 'XAGUSD_M1/DAT_MT_XAGUSD_M1_2024.csv'
+        'Gold': 'data/XAUUSD_M1/DAT_MT_XAUUSD_M1_2024.csv',
+        'Silver': 'data/XAGUSD_M1/DAT_MT_XAGUSD_M1_2024.csv'
     }
     
     results = {}
@@ -191,8 +191,8 @@ def main():
         print("  python quick_test.py <path_to_csv> [n_bars]")
         print("  python quick_test.py compare\n")
         print("Examples:")
-        print("  python quick_test.py XAUUSD_M1\\DAT_MT_XAUUSD_M1_2024.csv")
-        print("  python quick_test.py XAGUSD_M1\\DAT_MT_XAGUSD_M1_2024.csv 100000")
+        print("  python quick_test.py data\\XAUUSD_M1\\DAT_MT_XAUUSD_M1_2024.csv")
+        print("  python quick_test.py data\\XAGUSD_M1\\DAT_MT_XAGUSD_M1_2024.csv 100000")
         print("  python quick_test.py compare  # Compare Gold vs Silver\n")
         sys.exit(1)
     

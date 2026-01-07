@@ -96,8 +96,8 @@ print("7. Checking data files...")
 import os
 
 data_files = [
-    "XAUUSD_M1/DAT_MT_XAUUSD_M1_2024.csv",
-    "XAGUSD_M1/DAT_MT_XAGUSD_M1_2024.csv"
+    "data/XAUUSD_M1/DAT_MT_XAUUSD_M1_2024.csv",
+    "data/XAGUSD_M1/DAT_MT_XAGUSD_M1_2024.csv"
 ]
 
 for file in data_files:
@@ -138,8 +138,8 @@ if all_ok:
     print("✓✓✓ ALL CHECKS PASSED! ✓✓✓")
     print()
     print("You're ready to run the strategy:")
-    print("  python strategy.py XAUUSD_M1\\DAT_MT_XAUUSD_M1_2024.csv")
-    print("  python strategy.py XAGUSD_M1\\DAT_MT_XAGUSD_M1_2024.csv")
+    print("  python strategy.py data\\XAUUSD_M1\\DAT_MT_XAUUSD_M1_2024.csv")
+    print("  python strategy.py data\\XAGUSD_M1\\DAT_MT_XAGUSD_M1_2024.csv")
 else:
     print("✗✗✗ SOME CHECKS FAILED ✗✗✗")
     print()

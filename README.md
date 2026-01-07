@@ -116,19 +116,19 @@ python -c "import backtesting; import talib; print('All packages installed succe
 Run the strategy on Gold data:
 
 ```bash
-python strategy.py XAUUSD_M1/DAT_MT_XAUUSD_M1_2024.csv
+python strategy.py data/XAUUSD_M1/DAT_MT_XAUUSD_M1_2024.csv
 ```
 
 Run the strategy on Silver data:
 
 ```bash
-python strategy.py XAGUSD_M1/DAT_MT_XAGUSD_M1_2024.csv
+python strategy.py data/XAGUSD_M1/DAT_MT_XAGUSD_M1_2024.csv
 ```
 
 ### Expected Output
 
 ```
-Loading data from: XAUUSD_M1/DAT_MT_XAUUSD_M1_2024.csv
+Loading data from: data/XAUUSD_M1/DAT_MT_XAUUSD_M1_2024.csv
 Data loaded: 355653 bars
 Period: 2024-01-01 18:00:00 to 2024-12-31 23:59:00
 
@@ -256,13 +256,14 @@ Prometeo/
 ├── RESEARCH_REPORT.md               # Detailed methodology documentation
 ├── README.md                        # This file
 │
-├── XAUUSD_M1/                       # Gold market data
-│   ├── DAT_MT_XAUUSD_M1_2024.csv
-│   └── DAT_MT_XAUUSD_M1_2024.txt
-│
-└── XAGUSD_M1/                       # Silver market data
-    ├── DAT_MT_XAGUSD_M1_2024.csv
-    └── DAT_MT_XAGUSD_M1_2024.txt
+└── data/                            # Market data folder
+    ├── XAUUSD_M1/                   # Gold market data
+    │   ├── DAT_MT_XAUUSD_M1_2024.csv
+    │   └── DAT_MT_XAUUSD_M1_2024.txt
+    │
+    └── XAGUSD_M1/                   # Silver market data
+        ├── DAT_MT_XAGUSD_M1_2024.csv
+        └── DAT_MT_XAGUSD_M1_2024.txt
 ```
 
 ### Key Files
@@ -319,7 +320,7 @@ class AdaptiveMomentumReversion(Strategy):
 from backtesting import Backtest
 
 # Load data
-df = load_data('XAUUSD_M1/DAT_MT_XAUUSD_M1_2024.csv')
+df = load_data('data/XAUUSD_M1/DAT_MT_XAUUSD_M1_2024.csv')
 
 # Initialize backtest
 bt = Backtest(df, AdaptiveMomentumReversion, cash=100000, commission=0.00002)
@@ -380,7 +381,7 @@ print(f"Out-of-Sample Sharpe: {stats_test['Sharpe Ratio']:.2f}")
 **Solution:**
 ```python
 # Load data in chunks
-df = pd.read_csv('XAUUSD_M1/DAT_MT_XAUUSD_M1_2024.csv', 
+df = pd.read_csv('data/XAUUSD_M1/DAT_MT_XAUUSD_M1_2024.csv', 
                  chunksize=50000)
 ```
 

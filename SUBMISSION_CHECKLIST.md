@@ -8,12 +8,12 @@
 - [ ] All dependencies installed: `pip install -r requirements.txt`
 - [ ] TA-Lib installed (most critical - see SETUP_GUIDE.md)
 - [ ] Setup verification passed: `python test_setup.py` (all checks ✓)
-- [ ] Data files present in XAUUSD_M1/ and XAGUSD_M1/ folders
+- [ ] Data files present in data/XAUUSD_M1/ and data/XAGUSD_M1/ folders
 
 ### ✅ Testing & Validation
 
-- [ ] Strategy runs on Gold: `python strategy.py XAUUSD_M1\DAT_MT_XAUUSD_M1_2024.csv`
-- [ ] Strategy runs on Silver: `python strategy.py XAGUSD_M1\DAT_MT_XAGUSD_M1_2024.csv`
+- [ ] Strategy runs on Gold: `python strategy.py data\XAUUSD_M1\DAT_MT_XAUUSD_M1_2024.csv`
+- [ ] Strategy runs on Silver: `python strategy.py data\XAGUSD_M1\DAT_MT_XAGUSD_M1_2024.csv`
 - [ ] Quick test runs: `python quick_test.py compare`
 - [ ] Performance metrics are reasonable:
   - [ ] Sharpe Ratio > 1.0
@@ -160,13 +160,13 @@ python test_setup.py
 
 ### Test 2: Gold Backtest
 ```powershell
-python strategy.py XAUUSD_M1\DAT_MT_XAUUSD_M1_2024.csv
+python strategy.py data\XAUUSD_M1\DAT_MT_XAUUSD_M1_2024.csv
 # Expected: Sharpe > 1.0, trades executed, plot opens
 ```
 
 ### Test 3: Silver Backtest
 ```powershell
-python strategy.py XAGUSD_M1\DAT_MT_XAGUSD_M1_2024.csv
+python strategy.py data\XAGUSD_M1\DAT_MT_XAGUSD_M1_2024.csv
 # Expected: Similar performance to Gold
 ```
 
@@ -178,7 +178,7 @@ python quick_test.py compare
 
 ### Test 5: Parameter Optimization (Optional)
 ```powershell
-python optimize_params.py XAUUSD_M1\DAT_MT_XAUUSD_M1_2024.csv 20
+python optimize_params.py data\XAUUSD_M1\DAT_MT_XAUUSD_M1_2024.csv 20
 # Expected: Optimal parameters found, overfitting < 30%
 ```
 

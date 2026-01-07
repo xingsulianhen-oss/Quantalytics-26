@@ -122,17 +122,17 @@ pip install -r requirements.txt
 python test_setup.py
 
 # 3. Run backtest
-python strategy.py XAUUSD_M1\DAT_MT_XAUUSD_M1_2024.csv
+python strategy.py data\XAUUSD_M1\DAT_MT_XAUUSD_M1_2024.csv
 ```
 
 ### Advanced Usage
 
 ```powershell
 # Optimize parameters
-python optimize_params.py XAUUSD_M1\DAT_MT_XAUUSD_M1_2024.csv
+python optimize_params.py data\XAUUSD_M1\DAT_MT_XAUUSD_M1_2024.csv
 
 # Test on Silver
-python strategy.py XAGUSD_M1\DAT_MT_XAGUSD_M1_2024.csv
+python strategy.py data\XAGUSD_M1\DAT_MT_XAGUSD_M1_2024.csv
 ```
 
 ---
@@ -184,13 +184,14 @@ Prometeo/
 ├── test_setup.py                    # Setup verification
 ├── optimize_params.py               # Parameter optimization
 │
-├── XAUUSD_M1/                       # Gold data (provided)
-│   ├── DAT_MT_XAUUSD_M1_2024.csv
-│   └── DAT_MT_XAUUSD_M1_2024.txt
-│
-└── XAGUSD_M1/                       # Silver data (provided)
-    ├── DAT_MT_XAGUSD_M1_2024.csv
-    └── DAT_MT_XAGUSD_M1_2024.txt
+└── data/                            # Market data folder
+    ├── XAUUSD_M1/                   # Gold data (provided)
+    │   ├── DAT_MT_XAUUSD_M1_2024.csv
+    │   └── DAT_MT_XAUUSD_M1_2024.txt
+    │
+    └── XAGUSD_M1/                   # Silver data (provided)
+        ├── DAT_MT_XAGUSD_M1_2024.csv
+        └── DAT_MT_XAGUSD_M1_2024.txt
 ```
 
 ### Files to Submit for Competition

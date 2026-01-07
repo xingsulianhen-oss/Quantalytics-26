@@ -15,22 +15,22 @@ import os
 
 
 class AdaptiveMomentumReversion(Strategy):
-    # Strategy parameters - optimized for 5-min resampled data
+    # Strategy parameters - high Sharpe configuration
     rsi_period = 14          # Standard RSI
-    rsi_ob = 68              # Slightly sensitive overbought
-    rsi_os = 32              # Slightly sensitive oversold
+    rsi_ob = 70              # Standard overbought
+    rsi_os = 30              # Standard oversold
     bb_period = 20           # Standard BB
-    bb_std = 1.8             # Tighter bands
+    bb_std = 2.0             # Standard deviation
     atr_period = 14          # Standard ATR
-    sma_fast = 12            # Fast MA
-    sma_slow = 26            # Slow MA
+    sma_fast = 10            # Fast MA
+    sma_slow = 30            # Slow MA
     vol_period = 20          # Volatility window
     
     # Risk management
-    risk_pct = 0.015         # Risk 1.5% per trade
-    sl_atr_mult = 1.5        # Stop loss: 1.5x ATR
-    tp_atr_mult = 2.5        # Take profit: 2.5x ATR (1:1.67 R:R)
-    max_trades_per_day = 10  # Max trades per day
+    risk_pct = 0.02          # Risk 2% per trade
+    sl_atr_mult = 2.0        # Stop loss: 2x ATR
+    tp_atr_mult = 4.0        # Take profit: 4x ATR (1:2 R:R)
+    max_trades_per_day = 15  # Allow reasonable trades
     
     def init(self):
         # Price data
@@ -131,7 +131,7 @@ class AdaptiveMomentumReversion(Strategy):
     
     def _generate_signals(self):
         """
-        Clean signal generation - Trend Following with Mean Reversion entries
+        Multi-signal approach for better trade frequency while maintaining quality
         """
         p = self.data.Close[-1]
         
@@ -139,31 +139,36 @@ class AdaptiveMomentumReversion(Strategy):
         sma_bull = self.sma_f[-1] > self.sma_s[-1]
         sma_bear = self.sma_f[-1] < self.sma_s[-1]
         
-        # Mean reversion entry points (pullbacks in trend)
+        # RSI levels
         rsi_oversold = self.rsi[-1] < self.rsi_os
         rsi_overbought = self.rsi[-1] > self.rsi_ob
+        rsi_rising = len(self.rsi) > 2 and self.rsi[-1] > self.rsi[-2]
+        rsi_falling = len(self.rsi) > 2 and self.rsi[-1] < self.rsi[-2]
+        
+        # Bollinger Band touches
         bb_lower_touch = p <= self.bb_lower[-1]
         bb_upper_touch = p >= self.bb_upper[-1]
         
-        # MACD for momentum confirmation
+        # MACD momentum
         macd_bull = self.macd_line[-1] > self.macd_signal[-1]
         macd_bear = self.macd_line[-1] < self.macd_signal[-1]
         
-        # LONG: Buy pullbacks in uptrend
-        # Uptrend (SMA) + oversold/BB lower (pullback) + MACD turning up
-        long_signal = (
-            sma_bull and                         # In uptrend
-            (rsi_oversold or bb_lower_touch) and # At pullback level
-            macd_bull                            # Momentum turning up
-        )
+        # Entry Signal Types:
+        # Type 1: Trend pullback (high quality)
+        trend_pullback_long = sma_bull and (rsi_oversold or bb_lower_touch) and macd_bull
+        trend_pullback_short = sma_bear and (rsi_overbought or bb_upper_touch) and macd_bear
         
-        # SHORT: Sell rallies in downtrend
-        # Downtrend (SMA) + overbought/BB upper (rally) + MACD turning down
-        short_signal = (
-            sma_bear and                         # In downtrend
-            (rsi_overbought or bb_upper_touch) and # At rally level
-            macd_bear                            # Momentum turning down
-        )
+        # Type 2: Strong mean reversion (moderate quality)
+        strong_mr_long = rsi_oversold and bb_lower_touch and rsi_rising
+        strong_mr_short = rsi_overbought and bb_upper_touch and rsi_falling
+        
+        # Type 3: Momentum continuation in trend (additional signals)
+        momentum_long = sma_bull and macd_bull and (self.rsi[-1] > 50) and bb_lower_touch
+        momentum_short = sma_bear and macd_bear and (self.rsi[-1] < 50) and bb_upper_touch
+        
+        # Combined signals
+        long_signal = trend_pullback_long or strong_mr_long or momentum_long
+        short_signal = trend_pullback_short or strong_mr_short or momentum_short
         
         return long_signal, short_signal
     
@@ -224,7 +229,7 @@ class AdaptiveMomentumReversion(Strategy):
                 self.daily_trades += 1
 
 
-def load_data(csv_path, resample='5min'):
+def load_data(csv_path, resample='15min'):
     """Load and prepare OHLC data from CSV, with optional resampling"""
     df = pd.read_csv(
         csv_path,
@@ -236,7 +241,7 @@ def load_data(csv_path, resample='5min'):
     df = df.drop(['Date', 'Time'], axis=1)
     df = df.sort_index()
     
-    # Resample to reduce noise (M1 -> 5min by default)
+    # Resample to reduce noise (M1 -> 15min by default)
     if resample:
         df = df.resample(resample).agg({
             'Open': 'first',
@@ -294,7 +299,8 @@ def run_backtest(csv_path, cash=100000, commission_pct=0.00002):
         cash=cash,
         commission=commission_pct,
         exclusive_orders=True,
-        trade_on_close=False
+        trade_on_close=False,
+        finalize_trades=True  # Close open trades at end
     )
     
     print("\nRunning backtest...")
@@ -316,8 +322,8 @@ def main():
     if len(sys.argv) < 2:
         print("Usage: python strategy.py <path_to_csv>")
         print("\nExample:")
-        print("  python strategy.py XAUUSD_M1/DAT_MT_XAUUSD_M1_2024.csv")
-        print("  python strategy.py XAGUSD_M1/DAT_MT_XAGUSD_M1_2024.csv")
+        print("  python strategy.py data/XAUUSD_M1/DAT_MT_XAUUSD_M1_2024.csv")
+        print("  python strategy.py data/XAGUSD_M1/DAT_MT_XAGUSD_M1_2024.csv")
         sys.exit(1)
     
     csv_path = sys.argv[1]

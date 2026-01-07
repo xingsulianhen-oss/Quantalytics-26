@@ -40,12 +40,12 @@ python test_setup.py
 
 **Test on Gold:**
 ```powershell
-python strategy.py XAUUSD_M1\DAT_MT_XAUUSD_M1_2024.csv
+python strategy.py data\XAUUSD_M1\DAT_MT_XAUUSD_M1_2024.csv
 ```
 
 **Test on Silver:**
 ```powershell
-python strategy.py XAGUSD_M1\DAT_MT_XAGUSD_M1_2024.csv
+python strategy.py data\XAGUSD_M1\DAT_MT_XAGUSD_M1_2024.csv
 ```
 
 ---
@@ -99,10 +99,10 @@ pip install -r requirements.txt
 python test_setup.py
 
 # Run backtest on Gold
-python strategy.py XAUUSD_M1\DAT_MT_XAUUSD_M1_2024.csv
+python strategy.py data\XAUUSD_M1\DAT_MT_XAUUSD_M1_2024.csv
 
 # Run backtest on Silver
-python strategy.py XAGUSD_M1\DAT_MT_XAGUSD_M1_2024.csv
+python strategy.py data\XAGUSD_M1\DAT_MT_XAGUSD_M1_2024.csv
 
 # Check Python version
 python --version

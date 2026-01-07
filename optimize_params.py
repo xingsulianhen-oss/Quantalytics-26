@@ -212,8 +212,8 @@ def main():
     if len(sys.argv) < 2:
         print("Usage: python optimize_params.py <path_to_csv> [max_iterations]")
         print("\nExamples:")
-        print("  python optimize_params.py XAUUSD_M1/DAT_MT_XAUUSD_M1_2024.csv")
-        print("  python optimize_params.py XAGUSD_M1/DAT_MT_XAGUSD_M1_2024.csv 100")
+        print("  python optimize_params.py data/XAUUSD_M1/DAT_MT_XAUUSD_M1_2024.csv")
+        print("  python optimize_params.py data/XAGUSD_M1/DAT_MT_XAGUSD_M1_2024.csv 100")
         sys.exit(1)
     
     csv_path = sys.argv[1]
