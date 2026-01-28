@@ -72,49 +72,45 @@ class QuantalyticsEngine:
         return data
 
     def check_signal(self, df_raw):
-        """
-        核心判断逻辑
-        返回: (Signal_Type, Reason_String, Current_Price)
-        Signal_Type: "BUY", "SELL", "NEUTRAL"
-        """
-        # 确保数据量足够
+        # 1. 确保数据量足够
         min_len = max(self.params['sma_slow'], self.params['vol_ma_period']) + 10
         if len(df_raw) < min_len:
-            return "NEUTRAL", "数据预热中...", 0.0
+            # 【修改点1】之前返回的是 0.0，改为返回原始数据 df_raw
+            # 这样 UI 至少能画出这几根 K 线，而不会报错
+            return "NEUTRAL", "数据预热中...", df_raw
 
-        # 计算指标
+        # 2. 计算指标
         df = self.calculate_indicators(df_raw)
         curr = df.iloc[-1]
 
-        # --- 信号逻辑复刻 (基于 strategy.py) ---
+        # --- 信号逻辑复刻 ---
 
-        # 1. 趋势判断
+        # 趋势判断
         sma_bull = curr['SMA_F'] > curr['SMA_S']
         sma_bear = curr['SMA_F'] < curr['SMA_S']
 
-        # 2. 动量判断
+        # 动量判断
         macd_bull = curr['MACD'] > curr['MACD_SIG']
         macd_bear = curr['MACD'] < curr['MACD_SIG']
 
-        # 3. 均值回归 (超买超卖)
+        # 均值回归 (超买超卖)
         rsi_oversold = curr['RSI'] < self.params['rsi_os']
         rsi_overbought = curr['RSI'] > self.params['rsi_ob']
         bb_lower_touch = curr['Close'] <= curr['BBL']
         bb_upper_touch = curr['Close'] >= curr['BBU']
 
-        # 4. 波动率过滤 (原版遗漏的关键逻辑!)
-        # 只有当前波动率 > 50% 的平均波动率时，才允许交易
-        # 避免死鱼行情下的假突破
+        # 波动率过滤
         is_volatile = curr['vol'] > (0.5 * curr['vol_ma'])
 
         signal = "NEUTRAL"
         reasons = []
 
         if not is_volatile:
-            return "NEUTRAL", f"波动率过低 (Vol:{curr['vol']:.5f} < Threshold)", curr['Close']
+            # 【修改点2】之前返回的是 curr['Close'] (价格数字)，改为返回 df
+            # 这样即使因为波动率低不交易，UI 依然能画出均线和指标
+            return "NEUTRAL", f"波动率过低 (Vol:{curr['vol']:.5f} < Threshold)", df
 
         # --- 买入逻辑 ---
-        # 趋势向上 + (RSI超卖 或 触及下轨) + MACD金叉
         if sma_bull and (rsi_oversold or bb_lower_touch) and macd_bull:
             signal = "BUY"
             reasons.append("趋势向上")
@@ -123,7 +119,6 @@ class QuantalyticsEngine:
             reasons.append("MACD动能增强")
 
         # --- 卖出逻辑 ---
-        # 趋势向下 + (RSI超买 或 触及上轨) + MACD死叉
         elif sma_bear and (rsi_overbought or bb_upper_touch) and macd_bear:
             signal = "SELL"
             reasons.append("趋势向下")
@@ -131,4 +126,6 @@ class QuantalyticsEngine:
             if bb_upper_touch: reasons.append("触布林上轨")
             reasons.append("MACD动能减弱")
 
-        return signal, " + ".join(reasons), df
+        # 这里的 return 本来就是对的，不用改
+        reason_str = " + ".join(reasons) if reasons else "无明确信号"
+        return signal, reason_str, df

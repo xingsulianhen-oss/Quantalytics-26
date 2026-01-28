@@ -42,6 +42,32 @@ class TradingWorker(QThread):
     def stop(self):
         self.is_running = False
 
+class StringAxis(pg.AxisItem):
+    """
+    自定义坐标轴：将整数索引 (0, 1, 2) 映射回时间字符串 ("09:30", "09:31")
+    """
+    def __init__(self, orientation='bottom', **kwargs):
+        super().__init__(orientation, **kwargs)
+        self.ticks_mapper = {} # 存储 {index: time_str}
+
+    def set_ticks(self, data_index):
+        """传入 DataFrame 的 index (时间戳列表)"""
+        self.ticks_mapper = {}
+        for i, timestamp in enumerate(data_index):
+            # 存一下映射关系，只显示时:分
+            self.ticks_mapper[i] = timestamp.strftime('%H:%M')
+
+    def tickStrings(self, values, scale, spacing):
+        """重写父类方法：根据 value (整数索引) 返回显示文本"""
+        strings = []
+        for v in values:
+            idx = int(v)
+            # 如果索引在字典里，就返回时间；否则返回空
+            if idx in self.ticks_mapper:
+                strings.append(self.ticks_mapper[idx])
+            else:
+                strings.append("")
+        return strings
 
 class CandlestickItem(pg.GraphicsObject):
     """
@@ -149,7 +175,8 @@ class MainWindow(QMainWindow):
         # === 左侧：图表 ===
         chart_layout = QVBoxLayout()
         pg.setConfigOptions(antialias=True)
-        self.plot_widget = pg.PlotWidget(axisItems={'bottom': pg.DateAxisItem()})
+        self.x_axis = StringAxis(orientation='bottom')
+        self.plot_widget = pg.PlotWidget(axisItems={'bottom': self.x_axis})
         self.plot_widget.setBackground('#000000')
         self.plot_widget.showGrid(x=True, y=True, alpha=0.3)
         self.plot_widget.setTitle("Au99.99 实时走势", color="#aaa", size="12pt")
@@ -321,33 +348,34 @@ class MainWindow(QMainWindow):
             self.h_line.setZValue(999)
             # ===================================================
 
+            self.x_axis.set_ticks(df.index)
+
             # 1. 准备 K 线数据
             # 格式: (timestamp, open, close, low, high)
             ohlc_data = []
-            for index, row in df.iterrows():
-                t = index.timestamp()
-                ohlc_data.append((t, row['Open'], row['Close'], row['Low'], row['High']))
+            x_axis_indices = range(len(df))  # 0, 1, 2, ... len-1
+            for i, (index_ts, row) in enumerate(df.iterrows()):
+                # 注意：这里第一个参数传 i (0,1,2...)，而不是时间戳
+                ohlc_data.append((i, row['Open'], row['Close'], row['Low'], row['High']))
 
             # 2. 绘制 K 线 (放到最底层)
             candle_item = CandlestickItem(ohlc_data)
             self.plot_widget.addItem(candle_item)
 
-            timestamps = [x[0] for x in ohlc_data]
-
             # 3. 绘制均线 (SMA) - 这就是你要的"专业曲线"
             # 快线 (SMA_F): 黄色
             if 'SMA_F' in df.columns:
-                self.plot_widget.plot(timestamps, df['SMA_F'].values, pen=pg.mkPen('#ffff00', width=1), name="SMA Fast")
+                self.plot_widget.plot(x_axis_indices, df['SMA_F'].values, pen=pg.mkPen('#ffff00', width=1), name="SMA Fast")
 
             # 慢线 (SMA_S): 紫色
             if 'SMA_S' in df.columns:
-                self.plot_widget.plot(timestamps, df['SMA_S'].values, pen=pg.mkPen('#da70d6', width=1), name="SMA Slow")
+                self.plot_widget.plot(x_axis_indices, df['SMA_S'].values, pen=pg.mkPen('#da70d6', width=1), name="SMA Slow")
 
             # 4. 绘制布林带 (Bollinger Bands) - 蓝色细线
             if 'BBU' in df.columns:
-                self.plot_widget.plot(timestamps, df['BBU'].values,
+                self.plot_widget.plot(x_axis_indices, df['BBU'].values,
                                       pen=pg.mkPen('#00bfff', width=1, style=Qt.PenStyle.DashLine))
-                self.plot_widget.plot(timestamps, df['BBL'].values,
+                self.plot_widget.plot(x_axis_indices, df['BBL'].values,
                                       pen=pg.mkPen('#00bfff', width=1, style=Qt.PenStyle.DashLine))
 
         # 触发综合计算
@@ -402,43 +430,36 @@ class MainWindow(QMainWindow):
             self.lbl_amount.setText("建议金额: ¥ 0.00")
 
     def on_mouse_moved(self, pos):
-        """鼠标移动事件：更新十字光标和信息"""
+        """鼠标移动事件 (去断层适配版)"""
         if self.df_cache is None or self.df_cache.empty:
             return
 
-        # === 核心修改点 ===
-        # 原来的写法: if self.plot_widget.sceneBoundingRect().contains(pos):
-        # 现在的写法: 只判断 ViewBox (绘图区) 的范围，不包含坐标轴
         view_box = self.plot_widget.plotItem.vb
         if view_box.sceneBoundingRect().contains(pos):
-
-            # 将鼠标的屏幕坐标(Pixels)转换为图表坐标(Axis Values)
             mouse_point = view_box.mapSceneToView(pos)
-            x_val = mouse_point.x()
+            x_val = mouse_point.x()  # 这里的 x_val 现在是整数索引 (如 10.5)
             y_val = mouse_point.y()
 
-            # 2. 找到鼠标 X 轴位置对应的最近的数据点索引
-            timestamps = [t.timestamp() for t in self.df_cache.index]
+            # === 修改逻辑：直接四舍五入获取索引 ===
+            idx = int(round(x_val))
 
-            # 简单的查找算法：找差值最小的那个
-            import numpy as np
-            arr = np.array(timestamps)
-            idx = (np.abs(arr - x_val)).argmin()
+            # 边界保护：防止鼠标移出数据范围报错
+            if idx < 0: idx = 0
+            if idx >= len(self.df_cache): idx = len(self.df_cache) - 1
 
-            # 获取该行数据
+            # 直接按位置取数据，不需要 numpy 查时间了，超级快！
             target_row = self.df_cache.iloc[idx]
             target_time = self.df_cache.index[idx]
 
-            # 3. 更新十字线位置
-            self.v_line.setPos(timestamps[idx])
+            # 更新十字线 (吸附到整数索引上)
+            self.v_line.setPos(idx)
             self.h_line.setPos(y_val)
 
-            # 4. 构造显示文本 (HTML 格式)
+            # 构造文本
             color = "#ff4444" if target_row['Close'] >= target_row['Open'] else "#00cc00"
-
             info_html = f"""
             <div style='color: #eee; font-size: 12px; font-weight: bold;'>
-                <span style='color: #aaa;'>时间:</span> {target_time.strftime('%H:%M:%S')}<br>
+                <span style='color: #aaa;'>时间:</span> {target_time.strftime('%H:%M')}<br>
                 <span style='color: #aaa;'>开盘:</span> <span style='color: {color};'>{target_row['Open']:.2f}</span><br>
                 <span style='color: #aaa;'>最高:</span> <span style='color: {color};'>{target_row['High']:.2f}</span><br>
                 <span style='color: #aaa;'>最低:</span> <span style='color: {color};'>{target_row['Low']:.2f}</span><br>
@@ -446,22 +467,13 @@ class MainWindow(QMainWindow):
             """
             if 'RSI' in target_row:
                 info_html += f"<span style='color: #aaa;'>RSI:</span> {target_row['RSI']:.1f}<br>"
-
             info_html += "</div>"
 
-            # 5. 更新标签
             self.cursor_label.setHtml(info_html)
 
-            # 让标签固定在左上角 (推荐)，避免遮挡 K 线
-            # 获取 ViewBox 的当前可视范围 (X轴时间范围, Y轴价格范围)
+            # 标签固定在左上角
             view_rect = view_box.viewRange()
-            x_start = view_rect[0][0]  # 当前屏幕最左侧的时间戳
-            y_top = view_rect[1][1]  # 当前屏幕最顶部的价格
-
-            # 将标签移动到左上角 (稍微偏移一点，留出边距)
-            # 注意：mapViewToScene 可以更精确控制，但简单设置坐标通常够用了
-            # 这里的坐标是基于数据的，所以需要动态获取当前的 viewRange
-            self.cursor_label.setPos(x_start, y_top)
+            self.cursor_label.setPos(view_rect[0][0], view_rect[1][1])
 
     def closeEvent(self, event):
         self.worker.stop()
