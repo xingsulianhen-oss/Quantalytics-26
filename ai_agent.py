@@ -98,24 +98,32 @@ class AIAgent(QThread):
         while self.is_running:
             now = datetime.datetime.now()
             if self.last_analysis_time and (now - self.last_analysis_time).seconds < 60:
-                self.sleep(5)
+                for _ in range(50):
+                    if not self.is_running: break
+                    self.msleep(100)  # QThread 的 sleep 单位是秒
                 continue
 
             try:
                 if not self.client:
                     self.ai_advice_signal.emit("API Key 未配置", 0, [])
-                    self.sleep(60)
+                    for _ in range(600):
+                        if not self.is_running: break
+                        self.msleep(100)  # QThread 的 sleep 单位是秒
                     continue
 
                 news_data = self._fetch_financial_news()
                 if not news_data:
-                    self.sleep(60)
+                    for _ in range(600):
+                        if not self.is_running: break
+                        self.msleep(100)  # QThread 的 sleep 单位是秒
                     continue
                 current_fingerprint = "".join([n['title'] for n in news_data])
                 if current_fingerprint == self.last_news_fingerprint:
                     print("[AI Agent] 新闻未更新，复用上次结论，节省 Token。")
                     if self.last_analysis_time is not None:
-                        self.sleep(10)
+                        for _ in range(100):
+                            if not self.is_running: break
+                            self.msleep(100)  # QThread 的 sleep 单位是秒
                         continue
                 print("[AI Agent] 检测到新消息，请求 Gemini 分析...")
                 prompt = self._generate_prompt(news_data, "实盘中")
@@ -140,7 +148,9 @@ class AIAgent(QThread):
                 print(f"AI Error: {e}")
                 self.ai_advice_signal.emit(f"AI 错误: {e}", 0, [])
 
-            self.sleep(10)
+            for _ in range(100):
+                if not self.is_running: break
+                self.msleep(100)  # QThread 的 sleep 单位是秒
 
     def stop(self):
         self.is_running = False

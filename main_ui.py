@@ -9,11 +9,11 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal, QPointF, QRectF
 import pyqtgraph as pg
 from pyqtgraph import InfiniteLine, TextItem
 
-# 引入模块
 from data_dispatcher import DataHandler
 from strategy_engine import QuantalyticsEngine
 from ai_agent import AIAgent
 from portfolio_manager import PortfolioManager
+from optimizer_worker import OptimizerWorker
 
 
 # --- 交易线程 ---
@@ -35,9 +35,15 @@ class TradingWorker(QThread):
                     raw_df = self.data_handler.update_tick(price)
                     signal, reason, processed_df = self.strategy.check_signal(raw_df)
                     self.data_updated.emit(price, signal, reason, processed_df)
-                time.sleep(3)
+                for _ in range(30):
+                    if not self.is_running: break
+                    self.msleep(100)
             except Exception as e:
-                time.sleep(5)
+                print(f"[Worker] Error: {e}")
+                # 出错时也要碎片化等待
+                for _ in range(50):  # 5秒
+                    if not self.is_running: break
+                    self.msleep(100)
 
     def stop(self):
         self.is_running = False
@@ -166,6 +172,9 @@ class MainWindow(QMainWindow):
         self.ai_worker = AIAgent()
         self.ai_worker.ai_advice_signal.connect(self.update_ai_ui)
         self.ai_worker.start()
+
+        self.opt_worker = OptimizerWorker()
+        self.opt_worker.optimization_finished.connect(self.apply_new_params)
 
     def init_ui(self):
         central_widget = QWidget()
@@ -312,9 +321,20 @@ class MainWindow(QMainWindow):
         self.btn_calc.setStyleSheet("background-color: #007acc; color: white; padding: 8px;")
         self.btn_calc.clicked.connect(self.calculate_final_advice)
 
+        self.btn_optimize = QPushButton("🧬 启动 AI 参数进化 (周末专用)")
+        self.btn_optimize.setStyleSheet("""
+                    background-color: #6a0dad; 
+                    color: white; 
+                    padding: 8px; 
+                    border-radius: 4px;
+                    font-weight: bold;
+                """)  # 用紫色区分，显得高级一点
+        self.btn_optimize.clicked.connect(self.start_optimization)
+
         action_layout.addWidget(self.lbl_action)
         action_layout.addWidget(self.lbl_amount)
         action_layout.addWidget(self.btn_calc)
+        action_layout.addWidget(self.btn_optimize)
         panel_layout.addWidget(group_action)
 
         panel_layout.addStretch()
@@ -429,6 +449,37 @@ class MainWindow(QMainWindow):
             self.lbl_action.setStyleSheet("color: #888;")
             self.lbl_amount.setText("建议金额: ¥ 0.00")
 
+    def start_optimization(self):
+        """点击按钮触发优化"""
+        self.lbl_action.setText("正在计算最优策略...")
+        self.lbl_action.setStyleSheet("color: #aaa;")
+        self.btn_optimize.setEnabled(False)  # 禁用按钮防止重复点击
+        self.btn_optimize.setText("🧬 正在进化中 (约需10秒)...")
+
+        # 启动线程
+        self.opt_worker.start()
+
+    def apply_new_params(self, new_params):
+        """优化完成，应用新参数"""
+        print(f"[System] 收到进化后的参数: {new_params}")
+
+        # 1. 更新策略引擎参数
+        # 确保 worker.strategy 是存在的
+        self.worker.strategy.update_params(new_params)
+
+        # 2. UI 反馈
+        self.btn_optimize.setEnabled(True)
+        self.btn_optimize.setText("🧬 启动 AI 参数进化 (周末专用)")
+
+        # 3. 弹窗或在文本框提示
+        msg = f"✅ 参数进化成功!\n\n" \
+              f"RSI周期: {new_params.get('rsi_period')}\n" \
+              f"布林周期: {new_params.get('bb_period')}\n" \
+              f"SMA慢线: {new_params.get('sma_slow')}\n\n" \
+              f"策略已自动更新，下个信号将基于新参数。"
+
+        self.txt_tech_detail.setText(msg)
+
     def on_mouse_moved(self, pos):
         """鼠标移动事件 (去断层适配版)"""
         if self.df_cache is None or self.df_cache.empty:
@@ -476,10 +527,23 @@ class MainWindow(QMainWindow):
             self.cursor_label.setPos(view_rect[0][0], view_rect[1][1])
 
     def closeEvent(self, event):
-        self.worker.stop()
-        self.ai_worker.stop()
-        self.worker.wait()
-        self.ai_worker.wait()
+        print("正在关闭程序，清理线程中...")
+
+        # 1. 发出停止信号
+        if hasattr(self, 'worker'): self.worker.stop()
+        if hasattr(self, 'ai_worker'): self.ai_worker.stop()
+        if hasattr(self, 'opt_worker'):
+            # 优化线程通常没有 stop 标志，且 backtesting 很难中断
+            # 这里我们可以选择 terminate (强制结束)，或者干脆不等待它
+            if self.opt_worker.isRunning():
+                self.opt_worker.terminate()  # 强制结束计算
+
+        # 2. 有限等待 (最多等 1 秒)
+        # wait(1000) 表示最多等 1000 毫秒，如果线程还在跑，就返回 False，但也继续往下执行
+        if hasattr(self, 'worker'): self.worker.wait(1000)
+        if hasattr(self, 'ai_worker'): self.ai_worker.wait(1000)
+
+        print("程序已退出。")
         event.accept()
 
 

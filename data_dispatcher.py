@@ -76,29 +76,71 @@ class DataHandler:
             return float(df.iloc[-1]['Close'])
         return None
 
+    def fetch_long_history(self, days=30):
+        """
+        [新增] 获取长历史数据用于参数优化
+        使用新浪期货接口 (Au0) 获取最近的 15分钟 K线数据
+        """
+        try:
+            print(f"[DataHandler] 正在拉取过去 {days} 天的历史数据 (Au0 期货代理)...")
+            # period='15' 代表15分钟线，适合做周级别的参数优化，数据量适中
+            df = ak.futures_zh_minute_sina(symbol="au0", period="15")
+
+            # 数据清洗
+            df.rename(columns={'datetime': 'Datetime', 'open': 'Open', 'high': 'High',
+                               'low': 'Low', 'close': 'Close', 'volume': 'Volume'}, inplace=True)
+            df['Datetime'] = pd.to_datetime(df['Datetime'])
+            df.set_index('Datetime', inplace=True)
+
+            # 确保是数值类型
+            cols = ['Open', 'High', 'Low', 'Close', 'Volume']
+            df[cols] = df[cols].apply(pd.to_numeric, errors='coerce')
+
+            return df
+        except Exception as e:
+            print(f"[DataHandler] 历史数据获取失败: {e}")
+            return pd.DataFrame()
+
     def update_tick(self, current_price):
-        """更新缓冲区"""
+        """
+        更新缓冲区 (Tick 合成 K 线逻辑)
+        """
         if current_price is None:
             return self.buffer
 
-        now = datetime.datetime.now()
+        # 获取当前分钟的时间戳 (秒数置零)
+        now = datetime.datetime.now().replace(second=0, microsecond=0)
 
-        # 构造新行
-        new_row = pd.DataFrame({
-            'Open': [current_price],
-            'High': [current_price],
-            'Low': [current_price],
-            'Close': [current_price],
-            'Volume': [0]
-        }, index=[now])
+        # 1. 如果缓冲区为空，或者当前时间是新的一分钟 -> 创建新 K 线
+        if self.buffer.empty or self.buffer.index[-1] != now:
+            new_row = pd.DataFrame({
+                'Open': [current_price],
+                'High': [current_price],
+                'Low': [current_price],
+                'Close': [current_price],
+                'Volume': [0]  # 暂时没有成交量数据
+            }, index=[now])
 
-        if self.buffer.empty:
-            self.buffer = new_row
-        else:
             self.buffer = pd.concat([self.buffer, new_row])
 
-        # 保持缓冲区大小
-        if len(self.buffer) > self.max_len:
-            self.buffer = self.buffer.iloc[-self.max_len:]
+            # 保持缓冲区大小
+            if len(self.buffer) > self.max_len:
+                self.buffer = self.buffer.iloc[-self.max_len:]
+
+        # 2. 如果还在同一分钟内 -> 更新当前 K 线 (High/Low/Close)
+        else:
+            # 获取最后一行的数据引用
+            last_idx = self.buffer.index[-1]
+
+            # 更新最高价: 如果现价更高，就更新 High
+            if current_price > self.buffer.at[last_idx, 'High']:
+                self.buffer.at[last_idx, 'High'] = current_price
+
+            # 更新最低价: 如果现价更低，就更新 Low
+            if current_price < self.buffer.at[last_idx, 'Low']:
+                self.buffer.at[last_idx, 'Low'] = current_price
+
+            # 更新收盘价: 总是更新为最新价
+            self.buffer.at[last_idx, 'Close'] = current_price
 
         return self.buffer
