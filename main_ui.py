@@ -32,9 +32,9 @@ class TradingWorker(QThread):
             try:
                 price = self.data_handler.fetch_realtime_price()
                 if price is not None:
-                    df = self.data_handler.update_tick(price)
-                    signal, reason, _ = self.strategy.check_signal(df)
-                    self.data_updated.emit(price, signal, reason, df)
+                    raw_df = self.data_handler.update_tick(price)
+                    signal, reason, processed_df = self.strategy.check_signal(raw_df)
+                    self.data_updated.emit(price, signal, reason, processed_df)
                 time.sleep(3)
             except Exception as e:
                 time.sleep(5)
@@ -305,12 +305,6 @@ class MainWindow(QMainWindow):
         self.lbl_tech_signal.setText(f"信号: {signal}")
         self.lbl_tech_signal.setStyleSheet(f"color: {c}")
         self.txt_tech_detail.setText(reason)
-
-        # === 调试代码：看看有多少数据 ===
-        print(f"当前数据量: {len(df)} 行")
-        if not df.empty:
-            print(f"SMA_F 最新值: {df.iloc[-1].get('SMA_F')}")
-        # ===========================
 
         # --- 核心绘图逻辑优化 ---
         if not df.empty:

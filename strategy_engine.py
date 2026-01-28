@@ -131,4 +131,4 @@ class QuantalyticsEngine:
             if bb_upper_touch: reasons.append("触布林上轨")
             reasons.append("MACD动能减弱")
 
-        return signal, " + ".join(reasons), curr['Close']
+        return signal, " + ".join(reasons), df
