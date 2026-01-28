@@ -24,6 +24,7 @@ class AIAgent(QThread):
         self.is_running = True
         self.last_analysis_time = None
         self.client = None
+        self.last_news_fingerprint = ""
 
         if GEMINI_API_KEY != "你的_GEMINI_API_KEY_粘贴在这里":
             try:
@@ -96,7 +97,7 @@ class AIAgent(QThread):
     def run(self):
         while self.is_running:
             now = datetime.datetime.now()
-            if self.last_analysis_time and (now - self.last_analysis_time).seconds < 300:
+            if self.last_analysis_time and (now - self.last_analysis_time).seconds < 60:
                 self.sleep(5)
                 continue
 
@@ -107,6 +108,16 @@ class AIAgent(QThread):
                     continue
 
                 news_data = self._fetch_financial_news()
+                if not news_data:
+                    self.sleep(60)
+                    continue
+                current_fingerprint = "".join([n['title'] for n in news_data])
+                if current_fingerprint == self.last_news_fingerprint:
+                    print("[AI Agent] 新闻未更新，复用上次结论，节省 Token。")
+                    if self.last_analysis_time is not None:
+                        self.sleep(10)
+                        continue
+                print("[AI Agent] 检测到新消息，请求 Gemini 分析...")
                 prompt = self._generate_prompt(news_data, "实盘中")
 
                 response = self.client.models.generate_content(
@@ -122,6 +133,7 @@ class AIAgent(QThread):
 
                 # 发送完整的 news_data (包含链接)
                 self.ai_advice_signal.emit(result_text, score, news_data)
+                self.last_news_fingerprint = current_fingerprint
                 self.last_analysis_time = now
 
             except Exception as e:
