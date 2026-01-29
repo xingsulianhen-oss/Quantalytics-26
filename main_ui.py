@@ -1,6 +1,9 @@
 import sys
 import time
 import datetime
+import json
+import os
+import logging
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QLabel, QFrame, QTextEdit, QLineEdit,
                              QPushButton, QScrollArea, QGroupBox, QTextBrowser)
@@ -15,6 +18,14 @@ from ai_agent import AIAgent
 from portfolio_manager import PortfolioManager
 from optimizer_worker import OptimizerWorker
 
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("quant_system.log", encoding='utf-8'), # 写入文件
+        logging.StreamHandler() # 输出到控制台
+    ]
+)
 
 # --- 交易线程 ---
 class TradingWorker(QThread):
@@ -26,22 +37,88 @@ class TradingWorker(QThread):
         self.data_handler = DataHandler(max_len=200)
         self.strategy = QuantalyticsEngine()
 
+    def is_trading_time(self):
+        """
+        判断当前是否为上海黄金交易所 (SGE) 的交易时间
+        早盘: 09:00-11:30
+        午盘: 13:30-15:30
+        夜盘: 20:00-02:30 (次日)
+        """
+        now = datetime.datetime.now()
+        t = now.time()
+        wd = now.weekday()  # 0=周一, 6=周日
+
+        # 定义时间节点
+        t_02_30 = datetime.time(2, 30)
+        t_09_00 = datetime.time(9, 0)
+        t_11_30 = datetime.time(11, 30)
+        t_13_30 = datetime.time(13, 30)
+        t_15_30 = datetime.time(15, 30)
+        t_20_00 = datetime.time(20, 0)
+
+        # 1. 排除周末大休市
+        # 周六：02:30 之后休市
+        if wd == 5 and t > t_02_30:
+            return False
+        # 周日：全天休市
+        if wd == 6:
+            return False
+        # 周一：早盘前 (09:00前) 没有夜盘延续，休市
+        if wd == 0 and t < t_09_00:
+            return False
+
+        # 2. 判断具体时段
+        # 夜盘 (20:00 - 24:00 或 00:00 - 02:30)
+        # 注意：这里不用管周一凌晨，因为上面已经排除了
+        is_night = (t >= t_20_00) or (t < t_02_30)
+
+        # 早盘
+        is_morning = (t >= t_09_00) and (t < t_11_30)
+
+        # 午盘
+        is_afternoon = (t >= t_13_30) and (t < t_15_30)
+
+        return is_night or is_morning or is_afternoon
+
     def run(self):
+        logging.info("[Worker] 交易线程启动，正在初始化数据...")
         self.data_handler.initialize()
+
         while self.is_running:
+            # === 1. 交易时间检查 ===
+            if not self.is_trading_time():
+                # 如果是休市时间，打印一次日志（防止刷屏，实际可优化为只打印一次）
+                # logging.info("[System] 休市中，暂停监控...")
+
+                # 长时间休眠：1分钟 (600 * 0.1s)
+                # 使用碎片化睡眠，确保能随时响应关闭信号
+                for _ in range(600):
+                    if not self.is_running: break
+                    self.msleep(100)
+                continue
+
+            # === 2. 正常交易逻辑 ===
             try:
                 price = self.data_handler.fetch_realtime_price()
                 if price is not None:
+                    # 更新数据
                     raw_df = self.data_handler.update_tick(price)
+
+                    # 计算信号 (返回: 信号, 理由, 带指标的DF)
                     signal, reason, processed_df = self.strategy.check_signal(raw_df)
+
+                    # 发送给 UI
                     self.data_updated.emit(price, signal, reason, processed_df)
+
+                # 正常间隔：3秒 (30 * 0.1s)
                 for _ in range(30):
                     if not self.is_running: break
                     self.msleep(100)
+
             except Exception as e:
-                print(f"[Worker] Error: {e}")
-                # 出错时也要碎片化等待
-                for _ in range(50):  # 5秒
+                logging.error(f"[Worker] Error: {e}")
+                # 出错后等待 5秒
+                for _ in range(50):
                     if not self.is_running: break
                     self.msleep(100)
 
@@ -138,7 +215,7 @@ class CandlestickItem(pg.GraphicsObject):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("AI 黄金理财终端 (Day 5 - 最终修复版)")
+        self.setWindowTitle("Fin Tools")
         self.resize(1400, 900)
         self.setStyleSheet("""
             QMainWindow {background-color: #121212;}
@@ -175,6 +252,9 @@ class MainWindow(QMainWindow):
 
         self.opt_worker = OptimizerWorker()
         self.opt_worker.optimization_finished.connect(self.apply_new_params)
+
+        self.settings_file = "config.json"
+        self.load_settings()
 
     def init_ui(self):
         central_widget = QWidget()
@@ -341,6 +421,62 @@ class MainWindow(QMainWindow):
         scroll.setWidget(panel)
         main_layout.addWidget(scroll, stretch=4)
 
+    def load_settings(self):
+        """加载配置文件 (config.json)"""
+        config_file = "config.json"
+        if not os.path.exists(config_file):
+            return
+
+        try:
+            with open(config_file, 'r') as f:
+                data = json.load(f)
+
+            # 1. 恢复资产数据
+            if 'assets' in data:
+                self.input_holdings.setText(str(data['assets'].get('holdings', '0')))
+                self.input_cash.setText(str(data['assets'].get('cash', '10000')))
+
+            # 2. 恢复策略参数 (这是核心！)
+            if 'strategy_params' in data:
+                saved_params = data['strategy_params']
+                # 确保 strategy 对象已存在
+                if hasattr(self, 'worker') and hasattr(self.worker, 'strategy'):
+                    self.worker.strategy.update_params(saved_params)
+                    logging.info(f"[System] 成功加载历史策略参数: {saved_params}")
+
+            # 3. 恢复窗口状态 (可选)
+            if 'window_geometry' in data:
+                # PyQt6 需要把 list 转回 QByteArray，略繁琐，这里先只做简单的
+                pass
+
+        except Exception as e:
+            logging.error(f"[System] 读取配置失败: {e}")
+
+    def save_settings(self):
+        """保存配置文件"""
+        # 1. 获取当前策略参数
+        current_params = {}
+        if hasattr(self, 'worker') and hasattr(self.worker, 'strategy'):
+            current_params = self.worker.strategy.params
+
+        # 2. 构造数据字典
+        data = {
+            'assets': {
+                'holdings': self.input_holdings.text(),
+                'cash': self.input_cash.text()
+            },
+            'strategy_params': current_params,
+            'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+
+        # 3. 写入文件
+        try:
+            with open("config.json", 'w') as f:
+                json.dump(data, f, indent=4)
+            logging.info("[System] 配置已保存至 config.json")
+        except Exception as e:
+            logging.error(f"[System] 保存配置失败: {e}")
+
     def update_tech_ui(self, price, signal, reason, df):
         """更新技术面图表 (专业版)"""
         self.current_price = price
@@ -461,7 +597,7 @@ class MainWindow(QMainWindow):
 
     def apply_new_params(self, new_params):
         """优化完成，应用新参数"""
-        print(f"[System] 收到进化后的参数: {new_params}")
+        logging.info(f"[System] 收到进化后的参数: {new_params}")
 
         # 1. 更新策略引擎参数
         # 确保 worker.strategy 是存在的
@@ -527,7 +663,7 @@ class MainWindow(QMainWindow):
             self.cursor_label.setPos(view_rect[0][0], view_rect[1][1])
 
     def closeEvent(self, event):
-        print("正在关闭程序，清理线程中...")
+        logging.info("正在关闭程序，清理线程中...")
 
         # 1. 发出停止信号
         if hasattr(self, 'worker'): self.worker.stop()
@@ -543,7 +679,9 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'worker'): self.worker.wait(1000)
         if hasattr(self, 'ai_worker'): self.ai_worker.wait(1000)
 
-        print("程序已退出。")
+        self.save_settings()
+
+        logging.info("程序已退出。")
         event.accept()
 
 

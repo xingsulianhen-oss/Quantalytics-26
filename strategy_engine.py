@@ -9,8 +9,9 @@ class QuantalyticsEngine:
     """
 
     def __init__(self, params=None):
-        # 默认参数 (对应 strategy.py 的默认值)
+        # 默认参数 (与 strategy.py 完全对齐)
         self.params = {
+            # --- 核心指标参数 ---
             "rsi_period": 14,
             "rsi_ob": 70,
             "rsi_os": 30,
@@ -21,8 +22,17 @@ class QuantalyticsEngine:
             "macd_fast": 12,
             "macd_slow": 26,
             "macd_signal": 9,
+
+            # --- 波动率与风控参数 (新增对齐) ---
             "vol_period": 20,  # 波动率周期
-            "vol_ma_period": 50  # 波动率均值周期 (用于过滤死鱼行情)
+            "vol_ma_period": 50,  # 波动率过滤均线
+            "atr_period": 14,  # [新增] ATR 周期
+
+            # --- 资金管理参数 (虽然实盘由 UI 托管，但保留参数以兼容优化器) ---
+            "risk_pct": 0.02,
+            "sl_atr_mult": 1.8,
+            "tp_atr_mult": 4.5,
+            "max_trades_per_day": 15
         }
 
         # 如果传入了动态参数 (比如来自优化器)，覆盖默认值
@@ -44,39 +54,51 @@ class QuantalyticsEngine:
 
         # 2. Bollinger Bands
         bb = ta.bbands(data['Close'], length=self.params['bb_period'], std=self.params['bb_std'])
-        # pandas_ta 列名格式通常为 BBL_20_2.0
-        bbl_col = [c for c in bb.columns if c.startswith('BBL')][0]
-        bbu_col = [c for c in bb.columns if c.startswith('BBU')][0]
-        data['BBL'] = bb[bbl_col]
-        data['BBU'] = bb[bbu_col]
+        # 处理可能的空值情况
+        if bb is not None:
+            # pandas_ta 列名格式通常为 BBL_20_2.0
+            bbl_cols = [c for c in bb.columns if c.startswith('BBL')]
+            bbu_cols = [c for c in bb.columns if c.startswith('BBU')]
+            if bbl_cols and bbu_cols:
+                data['BBL'] = bb[bbl_cols[0]]
+                data['BBU'] = bb[bbu_cols[0]]
 
         # 3. MACD
         macd = ta.macd(data['Close'], fast=self.params['macd_fast'], slow=self.params['macd_slow'],
                        signal=self.params['macd_signal'])
-        macd_col = [c for c in macd.columns if c.startswith('MACD_') and 's' not in c and 'h' not in c][0]
-        macds_col = [c for c in macd.columns if c.startswith('MACDs_')][0]
-        data['MACD'] = macd[macd_col]
-        data['MACD_SIG'] = macd[macds_col]
+        if macd is not None:
+            macd_col = [c for c in macd.columns if c.startswith('MACD_') and 's' not in c and 'h' not in c][0]
+            macds_col = [c for c in macd.columns if c.startswith('MACDs_')][0]
+            data['MACD'] = macd[macd_col]
+            data['MACD_SIG'] = macd[macds_col]
 
         # 4. SMA Trend
         data['SMA_F'] = ta.sma(data['Close'], length=self.params['sma_fast'])
         data['SMA_S'] = ta.sma(data['Close'], length=self.params['sma_slow'])
 
-        # 5. Volatility (修复原版缺失的逻辑)
-        # 波动率计算：收益率的标准差
+        # 5. Volatility (波动率)
         data['pct_change'] = data['Close'].pct_change()
         data['vol'] = data['pct_change'].rolling(window=self.params['vol_period']).std()
-        # 波动率的均线 (用于判断当前是否活跃)
         data['vol_ma'] = data['vol'].rolling(window=self.params['vol_ma_period']).mean()
+
+        # 6. [新增] ATR 计算
+        # 这对 UI 显示波动幅度和后续风控很有用
+        data['ATR'] = ta.atr(data['High'], data['Low'], data['Close'], length=self.params['atr_period'])
 
         return data
 
     def check_signal(self, df_raw):
         # 1. 确保数据量足够
-        min_len = max(self.params['sma_slow'], self.params['vol_ma_period']) + 10
+        # 考虑到 ATR 和 Vol_MA，需要更长的预热期
+        max_period = max(
+            self.params['sma_slow'],
+            self.params['vol_ma_period'],
+            self.params['atr_period']
+        )
+        min_len = max_period + 10
+
         if len(df_raw) < min_len:
-            # 【修改点1】之前返回的是 0.0，改为返回原始数据 df_raw
-            # 这样 UI 至少能画出这几根 K 线，而不会报错
+            # 返回原始数据 df_raw 以便绘图
             return "NEUTRAL", "数据预热中...", df_raw
 
         # 2. 计算指标
@@ -89,32 +111,44 @@ class QuantalyticsEngine:
         sma_bull = curr['SMA_F'] > curr['SMA_S']
         sma_bear = curr['SMA_F'] < curr['SMA_S']
 
-        # 动量判断
-        macd_bull = curr['MACD'] > curr['MACD_SIG']
-        macd_bear = curr['MACD'] < curr['MACD_SIG']
+        # 动量判断 (需处理 NaN)
+        macd_val = curr.get('MACD', 0)
+        macd_sig = curr.get('MACD_SIG', 0)
+        macd_bull = macd_val > macd_sig
+        macd_bear = macd_val < macd_sig
 
         # 均值回归 (超买超卖)
-        rsi_oversold = curr['RSI'] < self.params['rsi_os']
-        rsi_overbought = curr['RSI'] > self.params['rsi_ob']
-        bb_lower_touch = curr['Close'] <= curr['BBL']
-        bb_upper_touch = curr['Close'] >= curr['BBU']
+        # 使用 .get 以防指标计算失败
+        rsi = curr.get('RSI', 50)
+        bbl = curr.get('BBL', 0)
+        bbu = curr.get('BBU', 999999)
+
+        rsi_oversold = rsi < self.params['rsi_os']
+        rsi_overbought = rsi > self.params['rsi_ob']
+        bb_lower_touch = curr['Close'] <= bbl
+        bb_upper_touch = curr['Close'] >= bbu
 
         # 波动率过滤
-        is_volatile = curr['vol'] > (0.5 * curr['vol_ma'])
+        vol = curr.get('vol', 0)
+        vol_ma = curr.get('vol_ma', 0)
+
+        # 保护逻辑：如果 vol_ma 为 NaN (数据刚够算指标但不够算均线)，暂不强行过滤
+        if pd.isna(vol_ma) or vol_ma == 0:
+            is_volatile = True
+        else:
+            is_volatile = vol > (0.5 * vol_ma)
 
         signal = "NEUTRAL"
         reasons = []
 
         if not is_volatile:
-            # 【修改点2】之前返回的是 curr['Close'] (价格数字)，改为返回 df
-            # 这样即使因为波动率低不交易，UI 依然能画出均线和指标
-            return "NEUTRAL", f"波动率过低 (Vol:{curr['vol']:.5f} < Threshold)", df
+            return "NEUTRAL", f"波动率过低 (Vol:{vol:.5f})", df
 
         # --- 买入逻辑 ---
         if sma_bull and (rsi_oversold or bb_lower_touch) and macd_bull:
             signal = "BUY"
             reasons.append("趋势向上")
-            if rsi_oversold: reasons.append(f"RSI超卖({curr['RSI']:.1f})")
+            if rsi_oversold: reasons.append(f"RSI超卖({rsi:.1f})")
             if bb_lower_touch: reasons.append("触布林下轨")
             reasons.append("MACD动能增强")
 
@@ -122,10 +156,9 @@ class QuantalyticsEngine:
         elif sma_bear and (rsi_overbought or bb_upper_touch) and macd_bear:
             signal = "SELL"
             reasons.append("趋势向下")
-            if rsi_overbought: reasons.append(f"RSI超买({curr['RSI']:.1f})")
+            if rsi_overbought: reasons.append(f"RSI超买({rsi:.1f})")
             if bb_upper_touch: reasons.append("触布林上轨")
             reasons.append("MACD动能减弱")
 
-        # 这里的 return 本来就是对的，不用改
         reason_str = " + ".join(reasons) if reasons else "无明确信号"
         return signal, reason_str, df

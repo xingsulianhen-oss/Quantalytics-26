@@ -2,18 +2,21 @@ import pandas as pd
 import akshare as ak
 import datetime
 import time
+import os  # 用于文件路径判断
 
 
 class DataHandler:
     """
-    数据调度员 (SGE 上海黄金交易所版)
-    使用 Au99.99 数据，完美对标支付宝黄金理财
+    数据调度员 (SGE 上海黄金交易所版 + 本地缓存增强版)
     """
 
     def __init__(self, max_len=1000):
         self.max_len = max_len
         self.symbol = "Au99.99"  # 支付宝黄金的标的物
         self.buffer = pd.DataFrame()
+
+        # 定义缓存文件路径 (保存在当前目录下)
+        self.cache_file = "gold_price_cache.csv"
 
     def _fetch_intraday_data(self):
         try:
@@ -25,9 +28,7 @@ class DataHandler:
             # 2. 重命名
             df.rename(columns={'现价': 'Close', '时间': 'Time_Str'}, inplace=True)
 
-            # --- 关键修正点 ---
-            # 报错原因：df['Time_Str'] 是 datetime.time 类型，不能直接和字符串相加
-            # 解决方法：加一个 .astype(str) 把它强制转成字符串
+            # 3. 处理时间
             today_str = datetime.date.today().strftime('%Y-%m-%d')
             df['Datetime'] = pd.to_datetime(today_str + ' ' + df['Time_Str'].astype(str))
 
@@ -46,56 +47,85 @@ class DataHandler:
             return df[['Open', 'High', 'Low', 'Close', 'Volume']]
 
         except Exception as e:
-            print(f"[DataHandler] 数据清洗出错: {e}")
-            # 打印一下出错时的数据长什么样，方便调试
-            # print(df.head())
+            print(f"[DataHandler] 网络数据清洗出错: {e}")
+            return pd.DataFrame()
+
+    def _save_to_cache(self):
+        """将当前缓冲区保存到 CSV"""
+        if not self.buffer.empty:
+            try:
+                # 实时写入，覆盖旧文件
+                self.buffer.to_csv(self.cache_file)
+            except Exception as e:
+                print(f"[DataHandler] 缓存写入失败: {e}")
+
+    def _load_from_cache(self):
+        """从 CSV 读取缓存数据"""
+        if not os.path.exists(self.cache_file):
+            return pd.DataFrame()
+
+        try:
+            print(f"[DataHandler] 正在尝试读取本地缓存: {self.cache_file} ...")
+            # index_col=0 表示第一列是索引(时间)，parse_dates=True 自动解析时间格式
+            df = pd.read_csv(self.cache_file, index_col=0, parse_dates=True)
+            return df
+        except Exception as e:
+            print(f"[DataHandler] 缓存读取失败: {e}")
             return pd.DataFrame()
 
     def initialize(self):
-        """热启动：直接拉取今天的历史分时"""
-        print(f"[DataHandler] 正在从上海黄金交易所拉取 {self.symbol} 数据...")
+        """
+        智能启动流程：
+        1. 尝试拉取网络数据 (Priority 1)
+        2. 如果失败，尝试加载本地缓存 (Priority 2)
+        3. 无论哪种成功，都保存/更新一次缓存
+        """
+        print(f"[DataHandler] 正在初始化 {self.symbol} 数据...")
+
+        # 1. 尝试网络请求
         df = self._fetch_intraday_data()
 
         if not df.empty:
+            print("[DataHandler] ✅ 网络热启动成功!")
             self.buffer = df.tail(self.max_len)
-            print(f"[DataHandler] 热启动成功! 已加载 {len(self.buffer)} 条 {self.symbol} 分时数据。")
-            print(f"[DataHandler] 最新时间: {self.buffer.index[-1]}")
-            print(f"[DataHandler] 最新价格: ¥{self.buffer.iloc[-1]['Close']}/克")
+            # 既然拿到了新数据，立刻刷新缓存
+            self._save_to_cache()
         else:
-            print("[DataHandler] ⚠️ 未获取到数据 (可能是休市或网络原因)，进入冷启动模式。")
+            print("[DataHandler] ⚠️ 网络获取失败 (休市或网络异常)，转入断点续传模式...")
+            # 2. 尝试读取缓存
+            cached_df = self._load_from_cache()
+            if not cached_df.empty:
+                print(f"[DataHandler] ✅ 本地缓存加载成功! 恢复了 {len(cached_df)} 条数据。")
+                print(f"[DataHandler] 缓存最新时间: {cached_df.index[-1]}")
+                self.buffer = cached_df.tail(self.max_len)
+            else:
+                print("[DataHandler] ❌ 本地缓存也为空。进入冷启动等待模式。")
+
+        if not self.buffer.empty:
+            price = self.buffer.iloc[-1]['Close']
+            print(f"[DataHandler] 当前基准价格: ¥{price}/克")
 
     def fetch_realtime_price(self):
-        """
-        获取最新价格
-        策略：直接复用 _fetch_intraday_data 取最后一条
-        虽然略显浪费（拉了全表只取最后一条），但 akshare 这个接口本身就是全量返回的，
-        且数据量很小（几百行），性能损耗可忽略，稳定性最高。
-        """
+        """获取最新价格 (网络优先)"""
         df = self._fetch_intraday_data()
         if not df.empty:
             return float(df.iloc[-1]['Close'])
+
+        # 如果网络断了，暂时不返回缓存的旧价格，以免误导交易
+        # 这里返回 None，UI 线程会暂时休眠等待网络恢复
         return None
 
     def fetch_long_history(self, days=30):
-        """
-        [新增] 获取长历史数据用于参数优化
-        使用新浪期货接口 (Au0) 获取最近的 15分钟 K线数据
-        """
+        """[参数优化专用] 获取长历史数据 (Au0 期货)"""
         try:
-            print(f"[DataHandler] 正在拉取过去 {days} 天的历史数据 (Au0 期货代理)...")
-            # period='15' 代表15分钟线，适合做周级别的参数优化，数据量适中
+            print(f"[DataHandler] 正在拉取过去 {days} 天的历史数据 (Au0)...")
             df = ak.futures_zh_minute_sina(symbol="au0", period="15")
-
-            # 数据清洗
             df.rename(columns={'datetime': 'Datetime', 'open': 'Open', 'high': 'High',
                                'low': 'Low', 'close': 'Close', 'volume': 'Volume'}, inplace=True)
             df['Datetime'] = pd.to_datetime(df['Datetime'])
             df.set_index('Datetime', inplace=True)
-
-            # 确保是数值类型
             cols = ['Open', 'High', 'Low', 'Close', 'Volume']
             df[cols] = df[cols].apply(pd.to_numeric, errors='coerce')
-
             return df
         except Exception as e:
             print(f"[DataHandler] 历史数据获取失败: {e}")
@@ -103,22 +133,21 @@ class DataHandler:
 
     def update_tick(self, current_price):
         """
-        更新缓冲区 (Tick 合成 K 线逻辑)
+        更新 K 线 + 自动保存缓存
         """
         if current_price is None:
             return self.buffer
 
-        # 获取当前分钟的时间戳 (秒数置零)
         now = datetime.datetime.now().replace(second=0, microsecond=0)
 
-        # 1. 如果缓冲区为空，或者当前时间是新的一分钟 -> 创建新 K 线
+        # 1. 新的一分钟 -> 创建新行
         if self.buffer.empty or self.buffer.index[-1] != now:
             new_row = pd.DataFrame({
                 'Open': [current_price],
                 'High': [current_price],
                 'Low': [current_price],
                 'Close': [current_price],
-                'Volume': [0]  # 暂时没有成交量数据
+                'Volume': [0]
             }, index=[now])
 
             self.buffer = pd.concat([self.buffer, new_row])
@@ -127,20 +156,17 @@ class DataHandler:
             if len(self.buffer) > self.max_len:
                 self.buffer = self.buffer.iloc[-self.max_len:]
 
-        # 2. 如果还在同一分钟内 -> 更新当前 K 线 (High/Low/Close)
+        # 2. 同一分钟 -> 更新当前 K 线
         else:
-            # 获取最后一行的数据引用
             last_idx = self.buffer.index[-1]
-
-            # 更新最高价: 如果现价更高，就更新 High
             if current_price > self.buffer.at[last_idx, 'High']:
                 self.buffer.at[last_idx, 'High'] = current_price
-
-            # 更新最低价: 如果现价更低，就更新 Low
             if current_price < self.buffer.at[last_idx, 'Low']:
                 self.buffer.at[last_idx, 'Low'] = current_price
-
-            # 更新收盘价: 总是更新为最新价
             self.buffer.at[last_idx, 'Close'] = current_price
+
+        # === 核心修改：每次更新数据后，立刻写入硬盘 ===
+        # 考虑到只有几百行数据，写入速度极快(毫秒级)，不会阻塞 UI
+        self._save_to_cache()
 
         return self.buffer

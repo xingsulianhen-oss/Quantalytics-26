@@ -27,6 +27,14 @@ class AdaptiveMomentumReversion(Strategy):
     sl_atr_mult = 1.8        # Stop: 1.8x ATR
     tp_atr_mult = 4.5        # TP: 4.5x ATR (1:2.5 R:R)
     max_trades_per_day = 15  # Allow reasonable trades
+
+    # MACD 参数
+    macd_fast = 12
+    macd_slow = 26
+    macd_signal = 9
+
+    # 波动率过滤参数
+    vol_ma_period = 50
     
     def init(self):
         # Price data
@@ -46,7 +54,7 @@ class AdaptiveMomentumReversion(Strategy):
         self.sma_s = self.I(SMA, p, self.sma_slow)
         self.vol = self.I(self._volatility, p, self.vol_period)
         self.macd_line, self.macd_signal, self.macd_hist = self.I(
-            self._macd, p, 12, 26, 9
+            self._macd, p, self.macd_fast, self.macd_slow, self.macd_signal
         )
         
         # ADX for trend strength
@@ -205,7 +213,14 @@ class AdaptiveMomentumReversion(Strategy):
         # Type 3: Momentum continuation in trend (additional signals)
         momentum_long = sma_bull and macd_bull and (self.rsi[-1] > 50) and bb_lower_touch
         momentum_short = sma_bear and macd_bear and (self.rsi[-1] < 50) and bb_upper_touch
-        
+
+        current_vol = self.vol[-1]
+        current_vol_ma = self.vol_ma[-1]
+        is_volatile = current_vol > (0.5 * current_vol_ma)
+
+        if not is_volatile:
+            return False, False  # 波动率不足，不交易
+
         # Combined signals
         long_signal = trend_pullback_long or strong_mr_long or momentum_long
         short_signal = trend_pullback_short or strong_mr_short or momentum_short
