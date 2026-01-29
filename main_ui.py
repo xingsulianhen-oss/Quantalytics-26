@@ -401,7 +401,7 @@ class MainWindow(QMainWindow):
         self.btn_calc.setStyleSheet("background-color: #007acc; color: white; padding: 8px;")
         self.btn_calc.clicked.connect(self.calculate_final_advice)
 
-        self.btn_optimize = QPushButton("🧬 启动 AI 参数进化 (周末专用)")
+        self.btn_optimize = QPushButton("🧬 AI 参数进化")
         self.btn_optimize.setStyleSheet("""
                     background-color: #6a0dad; 
                     color: white; 
@@ -605,7 +605,7 @@ class MainWindow(QMainWindow):
 
         # 2. UI 反馈
         self.btn_optimize.setEnabled(True)
-        self.btn_optimize.setText("🧬 启动 AI 参数进化 (周末专用)")
+        self.btn_optimize.setText("🧬 AI 参数进化")
 
         # 3. 弹窗或在文本框提示
         msg = f"✅ 参数进化成功!\n\n" \

@@ -7,7 +7,7 @@ import akshare as ak
 
 # ================= 配置区域 =================
 # 1. 在这里填入你的 Gemini API Key
-GEMINI_API_KEY = "" # "AIzaSyBouH98ESv0aSwxh-JI6q6sb98kzhKtn6c"
+GEMINI_API_KEY = ""
 
 # 2. 模型选择 (建议使用 Flash 系列，速度快且便宜)
 MODEL_NAME = "models/gemini-2.5-flash"
@@ -97,7 +97,7 @@ class AIAgent(QThread):
     def run(self):
         while self.is_running:
             now = datetime.datetime.now()
-            if self.last_analysis_time and (now - self.last_analysis_time).seconds < 60:
+            if self.last_analysis_time and (now - self.last_analysis_time).seconds < 300:
                 for _ in range(50):
                     if not self.is_running: break
                     self.msleep(100)  # QThread 的 sleep 单位是秒

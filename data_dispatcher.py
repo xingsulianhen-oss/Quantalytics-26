@@ -32,17 +32,28 @@ class DataHandler:
             today_str = datetime.date.today().strftime('%Y-%m-%d')
             df['Datetime'] = pd.to_datetime(today_str + ' ' + df['Time_Str'].astype(str))
 
-            # 4. 设置索引
+            # 4. 设置索引并排序
             df.set_index('Datetime', inplace=True)
-
-            # 5. 补全其他 OHLC 列
-            df['Open'] = df['Close']
-            df['High'] = df['Close']
-            df['Low'] = df['Close']
-            df['Volume'] = 0
-
-            # 6. 按时间排序 (防止数据乱序)
             df.sort_index(inplace=True)
+
+            # === 核心修复：构造“合成 K 线” ===
+
+            # 1. Open (开盘价) = 上一分钟的 Close (收盘价)
+            # 这样就能形成连续的 K 线，且能体现涨跌颜色
+            df['Open'] = df['Close'].shift(1)
+
+            # 2. 修正第一行 (第一行没有“上一分钟”，只能 Open=Close)
+            df['Open'] = df['Open'].fillna(df['Close'])
+
+            # 3. High (最高价) = max(Open, Close)
+            # 因为我们只有头尾两个点，只能假设最高价就是这俩里面高的那个
+            df['High'] = df[['Open', 'Close']].max(axis=1)
+
+            # 4. Low (最低价) = min(Open, Close)
+            df['Low'] = df[['Open', 'Close']].min(axis=1)
+
+            # 5. Volume (成交量)
+            df['Volume'] = 0
 
             return df[['Open', 'High', 'Low', 'Close', 'Volume']]
 
