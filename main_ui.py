@@ -84,6 +84,18 @@ class TradingWorker(QThread):
         logging.info("[Worker] 交易线程启动，正在初始化数据...")
         self.data_handler.initialize()
 
+        if not self.data_handler.buffer.empty:
+            # 取出当前缓冲区里的最新数据
+            current_price = self.data_handler.buffer.iloc[-1]['Close']
+
+            # 即使没有新信号，也先算一遍指标以便画图
+            # 注意：check_signal 会处理数据量不足的情况，返回 df_raw
+            signal, reason, processed_df = self.strategy.check_signal(self.data_handler.buffer)
+
+            # 马上发给 UI，让用户看见图
+            self.data_updated.emit(current_price, signal, reason, processed_df)
+            logging.info("[Worker] 首帧数据已发送至 UI")
+
         while self.is_running:
             # === 1. 交易时间检查 ===
             if not self.is_trading_time():
@@ -272,7 +284,7 @@ class MainWindow(QMainWindow):
         chart_layout.addWidget(self.plot_widget)
         main_layout.addLayout(chart_layout, stretch=6)
 
-        # === 新增：初始化十字光标 ===
+        # === 初始化十字光标 ===
         # 1. 垂直线 (时间轴)
         self.v_line = InfiniteLine(angle=90, movable=False)
         self.v_line.setPen(pg.mkPen('#aaa', width=1, style=Qt.PenStyle.DashLine))
@@ -482,6 +494,7 @@ class MainWindow(QMainWindow):
         self.current_price = price
         self.current_tech_signal = signal
         self.price_label.setText(f"¥{price:.2f}")
+        self.is_first_plot = True
 
         # 更新信号文字
         c = "#ff4444" if signal == "BUY" else "#00cc00" if signal == "SELL" else "#888"
@@ -533,6 +546,10 @@ class MainWindow(QMainWindow):
                                       pen=pg.mkPen('#00bfff', width=1, style=Qt.PenStyle.DashLine))
                 self.plot_widget.plot(x_axis_indices, df['BBL'].values,
                                       pen=pg.mkPen('#00bfff', width=1, style=Qt.PenStyle.DashLine))
+
+            if self.is_first_plot:
+                self.plot_widget.plotItem.autoRange()
+                self.is_first_plot = False
 
         # 触发综合计算
         self.calculate_final_advice()
