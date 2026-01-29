@@ -7,13 +7,19 @@ import threading
 
 
 class EmailNotifier:
-    def __init__(self):
+    def __init__(self, config=None):
         # ================= 配置区域 =================
         self.smtp_server = "smtp.qq.com"  # SMTP 服务器 (QQ: smtp.qq.com, 163: smtp.163.com)
         self.smtp_port = 465  # SSL 端口通常是 465
-        self.sender_email = "1070752543@qq.com"  # 发件人邮箱
+        self.sender_email = ""  # 发件人邮箱
         self.password = ""  # 邮箱授权码 (不是登录密码!)
-        self.receiver_email = "1070752543@qq.com"  # 收件人 (通常就是发给自己)
+        self.receiver_email = ""  # 收件人 (通常就是发给自己)
+
+        # 从配置字典加载
+        if config:
+            self.sender_email = config.get('sender', '')
+            self.password = config.get('password', '')
+            self.receiver_email = config.get('receiver', '')
         # ===========================================
 
     def send_email(self, subject, content):

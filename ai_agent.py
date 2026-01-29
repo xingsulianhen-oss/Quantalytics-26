@@ -9,11 +9,9 @@ import re
 
 # ================= 配置区域 =================
 # 1. Gemini 配置
-GEMINI_API_KEY = ""
 GEMINI_MODEL = "models/gemini-2.5-flash"
 
 # 2. DeepSeek 配置
-DEEPSEEK_API_KEY = ""
 DEEPSEEK_MODEL = "deepseek-reasoner"
 
 
@@ -23,28 +21,35 @@ class AIAgent(QThread):
     # 信号: (分析文本, 打分, 新闻列表)
     ai_advice_signal = pyqtSignal(str, int, list)
 
-    def __init__(self):
+    def __init__(self, api_config=None):
         super().__init__()
         self.is_running = True
         self.last_analysis_time = None
         self.last_news_fingerprint = ""
 
+        # 从配置中读取 Key
+        self.gemini_key = ""
+        self.deepseek_key = ""
+        if api_config:
+            self.gemini_key = api_config.get('gemini', '')
+            self.deepseek_key = api_config.get('deepseek', '')
+
         # --- 初始化 Gemini ---
         self.gemini_client = None
-        if GEMINI_API_KEY:
+        if self.gemini_key:
             try:
-                self.gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+                self.gemini_client = genai.Client(api_key=self.gemini_key)
                 print("[AI Agent] Gemini 客户端加载成功")
             except Exception as e:
                 print(f"[AI Agent] Gemini 初始化失败: {e}")
 
         # --- 初始化 DeepSeek (新增) ---
         self.ds_client = None
-        if DEEPSEEK_API_KEY:
+        if self.deepseek_key:
             try:
                 # DeepSeek 使用 OpenAI 兼容接口
                 self.ds_client = OpenAI(
-                    api_key=DEEPSEEK_API_KEY,
+                    api_key=self.deepseek_key,
                     base_url="https://api.deepseek.com"
                 )
                 print("[AI Agent] DeepSeek 客户端加载成功")

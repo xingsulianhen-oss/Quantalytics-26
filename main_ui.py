@@ -228,6 +228,8 @@ class CandlestickItem(pg.GraphicsObject):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        # 1. 先读取配置 (核心数据)
+        self.config_data = self.load_config_data()
         self.setWindowTitle("Fin Tools")
         self.resize(1400, 900)
         self.setStyleSheet("""
@@ -254,14 +256,21 @@ class MainWindow(QMainWindow):
         self.portfolio_manager = PortfolioManager()
 
         self.init_ui()
+        # 初始化 Worker (需要用到 config_data 里的 key)
+        # --- 传递 API Key 给 AI ---
+        api_keys = self.config_data.get('api_keys', {})
+        self.ai_worker = AIAgent(api_config=api_keys)  # <--- 注入依赖
+        self.ai_worker.ai_advice_signal.connect(self.update_ai_ui)
+        self.ai_worker.start()
+
+        # --- 传递 邮箱配置 给 Notifier ---
+        email_cfg = self.config_data.get('email_config', {})
+        self.notifier = EmailNotifier(config=email_cfg)  # <--- 注入依赖
+        self.last_notified_signal = "NEUTRAL"  # 防止重复发送
 
         self.worker = TradingWorker()
         self.worker.data_updated.connect(self.update_tech_ui)
         self.worker.start()
-
-        self.ai_worker = AIAgent()
-        self.ai_worker.ai_advice_signal.connect(self.update_ai_ui)
-        self.ai_worker.start()
 
         self.opt_worker = OptimizerWorker()
         self.opt_worker.optimization_finished.connect(self.apply_new_params)
@@ -269,9 +278,7 @@ class MainWindow(QMainWindow):
         self.settings_file = "config.json"
         self.load_settings()
 
-        # 初始化通知器
-        self.notifier = EmailNotifier()
-        self.last_notified_signal = "NEUTRAL"  # 防止重复发送
+        self.apply_ui_settings()
 
         # === 启动状态刷新定时器 ===
         self.status_timer = QTimer(self)
@@ -280,6 +287,33 @@ class MainWindow(QMainWindow):
 
         # 立即执行一次，避免启动时显示"初始化..."
         self.check_market_status()
+
+    def load_config_data(self):
+        """只负责读取 JSON 文件，返回字典"""
+        default_config = {
+            "api_keys": {},
+            "email_config": {},
+            "assets": {},
+            "strategy_params": {}
+        }
+        if os.path.exists("config.json"):
+            try:
+                with open("config.json", 'r', encoding='utf-8') as f:  # 注意 utf-8
+                    return json.load(f)
+            except Exception as e:
+                print(f"配置文件读取失败: {e}")
+        return default_config
+
+    def apply_ui_settings(self):
+        """将配置应用到 UI 控件上"""
+        assets = self.config_data.get('assets', {})
+        self.input_holdings.setText(str(assets.get('holdings', '0')))
+        self.input_cash.setText(str(assets.get('cash', '10000')))
+
+        # 恢复策略参数
+        params = self.config_data.get('strategy_params', {})
+        if params and hasattr(self, 'worker'):
+            self.worker.strategy.update_params(params)
 
     def init_ui(self):
         central_widget = QWidget()
@@ -569,27 +603,26 @@ class MainWindow(QMainWindow):
             logging.error(f"[System] 读取配置失败: {e}")
 
     def save_settings(self):
-        """保存配置文件"""
-        # 1. 获取当前策略参数
-        current_params = {}
-        if hasattr(self, 'worker') and hasattr(self.worker, 'strategy'):
-            current_params = self.worker.strategy.params
+        """
+        保存配置
+        注意：我们必须先读取旧文件，保留 api_keys 和 email_config 不被覆盖
+        """
+        current_data = self.load_config_data()  # 读取现有所有数据(含Key)
 
-        # 2. 构造数据字典
-        data = {
-            'assets': {
-                'holdings': self.input_holdings.text(),
-                'cash': self.input_cash.text()
-            },
-            'strategy_params': current_params,
-            'timestamp': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        # 更新资产和策略 (只覆盖变动部分)
+        current_data['assets'] = {
+            'holdings': self.input_holdings.text(),
+            'cash': self.input_cash.text()
         }
+        if hasattr(self, 'worker'):
+            current_data['strategy_params'] = self.worker.strategy.params
 
-        # 3. 写入文件
+        current_data['timestamp'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
         try:
-            with open("config.json", 'w') as f:
-                json.dump(data, f, indent=4)
-            logging.info("[System] 配置已保存至 config.json")
+            with open("config.json", 'w', encoding='utf-8') as f:
+                json.dump(current_data, f, indent=4, ensure_ascii=False)
+            logging.info("[System] 配置已保存 (Key 信息已保留)")
         except Exception as e:
             logging.error(f"[System] 保存配置失败: {e}")
 
