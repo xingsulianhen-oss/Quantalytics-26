@@ -9,13 +9,12 @@ import re
 
 # ================= 配置区域 =================
 # 1. Gemini 配置
-GEMINI_API_KEY = ""# "AIzaSyB-Kx63QIUarcoGYMPkvb-b8zBhQ1dSD8c"  # "你的_GEMINI_API_KEY"
+GEMINI_API_KEY = ""
 GEMINI_MODEL = "models/gemini-2.5-flash"
 
-# 2. DeepSeek 配置 (新增)
-# 去 https://platform.deepseek.com/ 申请 API Key
-DEEPSEEK_API_KEY = ""#"sk-10cb46b2e68e46bd95282b06bd2a357d"
-DEEPSEEK_MODEL = "deepseek-reasoner"  # 或者 "deepseek-reasoner" (R1)
+# 2. DeepSeek 配置
+DEEPSEEK_API_KEY = ""
+DEEPSEEK_MODEL = "deepseek-reasoner"
 
 
 # ===========================================
@@ -153,10 +152,10 @@ class AIAgent(QThread):
 
         while self.is_running:
             now = datetime.datetime.now()
-            if self.last_analysis_time and (now - self.last_analysis_time).seconds < 60:
+            if self.last_analysis_time and (now - self.last_analysis_time).seconds < 600:
                 for _ in range(50):
                     if not self.is_running: break
-                    self.msleep(100)  # QThread 的 sleep 单位是秒
+                    self.msleep(100)
                 continue
 
             try:
@@ -164,7 +163,7 @@ class AIAgent(QThread):
                     self.ai_advice_signal.emit("API Key 未配置", 0, [])
                     for _ in range(600):
                         if not self.is_running: break
-                        self.msleep(100)  # QThread 的 sleep 单位是秒
+                        self.msleep(100)
                     continue
 
                 # 2. 获取新闻
@@ -175,7 +174,7 @@ class AIAgent(QThread):
                         self.msleep(100)
                     continue
 
-                # 3. 检查新闻指纹 (防抖)
+                # 3. 检查新闻指纹
                 current_fingerprint = "".join([n['title'] for n in news_data])
                 if current_fingerprint == self.last_news_fingerprint:
                     print("[AI Agent] 新闻未更新，复用上次结论，节省 Token。")

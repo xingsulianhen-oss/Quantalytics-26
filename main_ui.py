@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QLabel, QFrame, QTextEdit, QLineEdit,
                              QPushButton, QScrollArea, QGroupBox, QTextBrowser)
 from PyQt6.QtGui import QFont, QDoubleValidator, QColor, QPicture, QPainter
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QPointF, QRectF
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QPointF, QRectF, QTimer
 import pyqtgraph as pg
 from pyqtgraph import InfiniteLine, TextItem
 
@@ -17,6 +17,7 @@ from strategy_engine import QuantalyticsEngine
 from ai_agent import AIAgent
 from portfolio_manager import PortfolioManager
 from optimizer_worker import OptimizerWorker
+from notifier import EmailNotifier
 
 logging.basicConfig(
     level=logging.INFO,
@@ -268,20 +269,64 @@ class MainWindow(QMainWindow):
         self.settings_file = "config.json"
         self.load_settings()
 
+        # 初始化通知器
+        self.notifier = EmailNotifier()
+        self.last_notified_signal = "NEUTRAL"  # 防止重复发送
+
+        # === 启动状态刷新定时器 ===
+        self.status_timer = QTimer(self)
+        self.status_timer.timeout.connect(self.check_market_status)
+        self.status_timer.start(1000)  # 每秒刷新一次
+
+        # 立即执行一次，避免启动时显示"初始化..."
+        self.check_market_status()
+
     def init_ui(self):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QHBoxLayout(central_widget)
 
-        # === 左侧：图表 ===
+        # === 左侧：图表区域 ===
         chart_layout = QVBoxLayout()
         pg.setConfigOptions(antialias=True)
+
+        # 1. 创建自定义标题栏布局 (水平布局: 标题 + 状态灯)
+        title_layout = QHBoxLayout()
+
+        # [标题] 手动创建一个 Label 代替原来的 setTitle
+        lbl_title = QLabel("Au99.99 实时走势")
+        lbl_title.setStyleSheet("color: #aaa; font-size: 16px; font-weight: bold; padding-bottom: 5px;")
+        title_layout.addWidget(lbl_title)
+
+        # [状态标签]
+        self.lbl_market_status = QLabel("● 初始化...")
+        self.lbl_market_status.setStyleSheet("""
+                    color: #888; 
+                    font-size: 12px; 
+                    font-weight: bold; 
+                    padding: 2px 6px; 
+                    border: 1px solid #444; 
+                    border-radius: 4px;
+                    background-color: #2a2a2a;
+                    margin-left: 10px;
+                """)
+        title_layout.addWidget(self.lbl_market_status)
+
+        # [弹簧] 把标题和标签挤到左边
+        title_layout.addStretch()
+
+        # 将自定义标题栏加入主垂直布局
+        chart_layout.addLayout(title_layout)
+
+        # 2. 创建图表控件
         self.x_axis = StringAxis(orientation='bottom')
         self.plot_widget = pg.PlotWidget(axisItems={'bottom': self.x_axis})
         self.plot_widget.setBackground('#000000')
         self.plot_widget.showGrid(x=True, y=True, alpha=0.3)
-        self.plot_widget.setTitle("Au99.99 实时走势", color="#aaa", size="12pt")
+
+        # 将图表加入布局
         chart_layout.addWidget(self.plot_widget)
+
         main_layout.addLayout(chart_layout, stretch=6)
 
         # === 初始化十字光标 ===
@@ -433,6 +478,65 @@ class MainWindow(QMainWindow):
         scroll.setWidget(panel)
         main_layout.addWidget(scroll, stretch=4)
 
+    def check_market_status(self):
+        """检查并更新市场状态标签"""
+        now = datetime.datetime.now()
+        t = now.time()
+        wd = now.weekday()  # 0=周一, 6=周日
+
+        # 定义关键时间点
+        t_02_30 = datetime.time(2, 30)
+        t_09_00 = datetime.time(9, 0)
+        t_11_30 = datetime.time(11, 30)
+        t_13_30 = datetime.time(13, 30)
+        t_15_30 = datetime.time(15, 30)
+        t_20_00 = datetime.time(20, 0)
+
+        is_trading = False
+
+        # --- 复用交易时间判断逻辑 ---
+        # 1. 周末判断
+        if wd == 5 and t > t_02_30:
+            is_trading = False  # 周六凌晨2:30后休市
+        elif wd == 6:
+            is_trading = False  # 周日全天休市
+        elif wd == 0 and t < t_09_00:
+            is_trading = False  # 周一早盘前休市
+        else:
+            # 2. 时段判断
+            is_night = (t >= t_20_00) or (t < t_02_30)
+            is_morning = (t >= t_09_00) and (t < t_11_30)
+            is_afternoon = (t >= t_13_30) and (t < t_15_30)
+
+            if is_night or is_morning or is_afternoon:
+                is_trading = True
+
+        # --- 更新 UI 样式 ---
+        if is_trading:
+            self.lbl_market_status.setText("● 交易中")
+            # 亮绿色样式
+            self.lbl_market_status.setStyleSheet("""
+                color: #00ff00; 
+                font-size: 12px; 
+                font-weight: bold; 
+                padding: 4px 8px; 
+                border: 1px solid #00ff00; 
+                border-radius: 4px;
+                background-color: rgba(0, 255, 0, 0.1);
+            """)
+        else:
+            self.lbl_market_status.setText("● 已休市")
+            # 暗红色/灰色样式
+            self.lbl_market_status.setStyleSheet("""
+                color: #ff4444; 
+                font-size: 12px; 
+                font-weight: bold; 
+                padding: 4px 8px; 
+                border: 1px solid #ff4444; 
+                border-radius: 4px;
+                background-color: rgba(255, 68, 68, 0.1);
+            """)
+
     def load_settings(self):
         """加载配置文件 (config.json)"""
         config_file = "config.json"
@@ -554,6 +658,29 @@ class MainWindow(QMainWindow):
         # 触发综合计算
         self.calculate_final_advice()
 
+        # === 邮件通知逻辑 ===
+        # 1. 信号发生变化 (从无到有，或反转)
+        if signal in ["BUY", "SELL"] and signal != self.last_notified_signal:
+            # 构造漂亮的 HTML 内容
+            color = "green" if signal == "BUY" else "red"
+            html_content = f"""
+                    <h2>Quantalytics 交易信号提醒</h2>
+                    <p><b>时间:</b> {datetime.datetime.now().strftime('%H:%M:%S')}</p>
+                    <p><b>标的:</b> Au99.99</p>
+                    <p><b>价格:</b> {price}</p>
+                    <p style="font-size: 20px;"><b>信号: <span style="color:{color}">{signal}</span></b></p>
+                    <p><b>理由:</b> {reason}</p>
+                    <hr>
+                    <p>请及时查看盘面确认。</p>
+                    """
+
+            self.notifier.send_email(f"【{signal}】黄金交易信号提醒", html_content)
+            self.last_notified_signal = signal  # 记住这次发过了
+
+        # 如果信号消失变回 NEUTRAL，重置状态
+        if signal == "NEUTRAL":
+            self.last_notified_signal = "NEUTRAL"
+
     def update_ai_ui(self, text, score, news_data):
         self.current_ai_score = score
 
@@ -576,6 +703,19 @@ class MainWindow(QMainWindow):
         self.lbl_ai_score.setStyleSheet(f"color: {color}")
         self.txt_ai_reason.setText(text)
         self.calculate_final_advice()
+
+        # 如果 AI 极度看多或看空 (绝对值 > 7)，也发邮件
+        if abs(score) >= 7:
+            news_html = "<ul>" + "".join([f"<li>{n['title']}</li>" for n in news_data]) + "</ul>"
+            html_content = f"""
+                    <h2>AI 深度情报预警</h2>
+                    <p><b>情绪打分:</b> {score}</p>
+                    <p><b>分析摘要:</b></p>
+                    <pre style="white-space: pre-wrap;">{text}</pre>
+                    <p><b>相关新闻:</b></p>
+                    {news_html}
+                    """
+            self.notifier.send_email(f"【AI预警】重大行情提示 (分值:{score})", html_content)
 
     def calculate_final_advice(self):
         try:
