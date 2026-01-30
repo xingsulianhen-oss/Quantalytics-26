@@ -716,40 +716,78 @@ class MainWindow(QMainWindow):
             self.last_notified_signal = "NEUTRAL"
 
     def update_ai_ui(self, text, score, news_data):
+        """
+        更新 AI 界面：显示带有本地打分的新闻列表 + 云端分析结果
+        """
         self.current_ai_score = score
 
-        html_content = "<html><body>"
+        # === 构建新闻列表 HTML (带分数) ===
+        html_content = "<html><body style='font-family: Arial;'>"
         for i, item in enumerate(news_data):
             title = item['title']
             link = item['link']
-            # 链接样式
+
+            # 获取本地分数 (如果没有分数，说明是兜底数据，显示 -)
+            local_score = item.get('local_score', None)
+
+            # 根据分数设定颜色
+            score_html = ""
+            if local_score is not None:
+                if local_score >= 8:
+                    # 高分：亮红色 + 加粗
+                    score_tag = f"<span style='color: #ff4444; font-weight: 900;'>[{local_score}]</span>"
+                elif local_score >= 6:
+                    # 中分：橙色
+                    score_tag = f"<span style='color: #ffaa00; font-weight: bold;'>[{local_score}]</span>"
+                else:
+                    # 低分：灰色
+                    score_tag = f"<span style='color: #888;'>[{local_score}]</span>"
+
+                score_html = f"{score_tag} "
+            else:
+                # 无分数（通常是未触发筛选的兜底新闻）
+                score_html = "<span style='color: #555;'>[-]</span> "
+
+            # 组合：序号. [分数] 标题 (带链接)
             html_content += f"""
-            <p style='margin-bottom: 8px;'>
-                {i + 1}. <a href='{link}' style='color: #5dade2; text-decoration: none; font-weight: bold;'>{title}</a>
+            <p style='margin-bottom: 8px; line-height: 1.4;'>
+                <span style='color: #888;'>{i + 1}.</span> 
+                {score_html}
+                <a href='{link}' style='color: #5dade2; text-decoration: none; font-weight: bold;'>{title}</a>
             </p>
             """
         html_content += "</body></html>"
 
+        # 刷新新闻框
         self.txt_news_list.setHtml(html_content)
 
+        # === 更新 AI 分析结果 (原有逻辑) ===
         color = "#ff4444" if score > 0 else "#00cc00" if score < 0 else "#ccc"
         self.lbl_ai_score.setText(f"情绪分: {score}")
         self.lbl_ai_score.setStyleSheet(f"color: {color}")
         self.txt_ai_reason.setText(text)
+
+        # 触发操作建议计算
         self.calculate_final_advice()
 
-        # 如果 AI 极度看多或看空 (绝对值 > 7)，也发邮件
+        # === 邮件预警逻辑 (原有逻辑) ===
         if abs(score) >= 7:
-            news_html = "<ul>" + "".join([f"<li>{n['title']}</li>" for n in news_data]) + "</ul>"
-            html_content = f"""
+            news_list_str = "".join([f"<li>[{n.get('local_score', '-')}分] {n['title']}</li>" for n in news_data])
+            news_html = f"<ul>{news_list_str}</ul>"
+
+            html_email = f"""
                     <h2>AI 深度情报预警</h2>
-                    <p><b>情绪打分:</b> {score}</p>
-                    <p><b>分析摘要:</b></p>
-                    <pre style="white-space: pre-wrap;">{text}</pre>
-                    <p><b>相关新闻:</b></p>
+                    <p><b>情绪打分:</b> <span style="color:{'red' if score > 0 else 'green'}">{score}</span></p>
+                    <hr>
+                    <h3>【分析摘要】</h3>
+                    <pre style="white-space: pre-wrap; font-family: sans-serif;">{text}</pre>
+                    <hr>
+                    <h3>【高分情报源】</h3>
                     {news_html}
                     """
-            self.notifier.send_email(f"【AI预警】重大行情提示 (分值:{score})", html_content)
+            # 发送邮件
+            if hasattr(self, 'notifier'):
+                self.notifier.send_email(f"【AI预警】重大行情提示 (分值:{score})", html_email)
 
     def calculate_final_advice(self):
         try:
