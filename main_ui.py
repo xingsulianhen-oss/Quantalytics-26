@@ -280,6 +280,8 @@ class MainWindow(QMainWindow):
 
         self.apply_ui_settings()
 
+        self.is_first_plot = True
+
         # === 启动状态刷新定时器 ===
         self.status_timer = QTimer(self)
         self.status_timer.timeout.connect(self.check_market_status)
@@ -631,7 +633,6 @@ class MainWindow(QMainWindow):
         self.current_price = price
         self.current_tech_signal = signal
         self.price_label.setText(f"¥{price:.2f}")
-        self.is_first_plot = True
 
         # 更新信号文字
         c = "#ff4444" if signal == "BUY" else "#00cc00" if signal == "SELL" else "#888"

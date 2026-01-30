@@ -157,7 +157,7 @@ class AIAgent(QThread):
 
         while self.is_running:
             now = datetime.datetime.now()
-            if self.last_analysis_time and (now - self.last_analysis_time).seconds < 600:
+            if self.last_analysis_time and (now - self.last_analysis_time).seconds < 3600:
                 for _ in range(50):
                     if not self.is_running: break
                     self.msleep(100)
