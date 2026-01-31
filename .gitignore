@@ -24,3 +24,7 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+/dist
+/build
+/Quantalytics_Gold.spec
+/config.json

@@ -1,20 +1,33 @@
 # Quantalytics Trading Strategy - Requirements
-# Python 3.8+ required
+# Python 3.8+ required 
 
-# Core libraries
-pandas>=1.5.0
-numpy>=1.23.0
+# --- 核心数学与数据处理 ---
+pandas>=1.5.0 
+pandas_ta>=0.4.71b0
+numpy>=1.23.0 
+scipy>=1.9.0 
 
-# Backtesting framework
-backtesting>=0.3.3
+# --- UI 框架与图形绘制 ---
+PyQt6>=6.4.0
+pyqtgraph>=0.13.1
+matplotlib>=3.5.0 
+seaborn>=0.12.0 
+pyopengl>=3.1.10
+pyopengl_accelerate>=3.1.10
+tbb>=2022.3.1
 
-# Technical analysis
-TA-Lib>=0.4.24
+# --- 金融数据与新闻抓取 ---
+akshare>=1.12.0
+feedparser>=6.0.10
 
-# Visualization
-matplotlib>=3.5.0
-seaborn>=0.12.0
+# --- AI 与 大语言模型接口 ---
+google-genai>=0.3.0
+openai>=1.10.0
+ollama>=0.1.6
 
-# Additional utilities
-scipy>=1.9.0
+# --- 技术指标与量化分析 ---
+TA-Lib>=0.4.24 
+backtesting>=0.3.3 
+
+# --- 机器学习 ---
 scikit-learn>=1.1.0

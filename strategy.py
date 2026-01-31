@@ -6,6 +6,7 @@ from backtesting import Backtest, Strategy
 from backtesting.lib import crossover
 from backtesting.test import SMA
 import talib as ta
+import talib.stream
 import sys
 import os
 
