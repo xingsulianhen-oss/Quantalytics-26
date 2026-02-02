@@ -89,76 +89,68 @@ class QuantalyticsEngine:
 
     def check_signal(self, df_raw):
         # 1. 确保数据量足够
-        # 考虑到 ATR 和 Vol_MA，需要更长的预热期
         max_period = max(
             self.params['sma_slow'],
             self.params['vol_ma_period'],
             self.params['atr_period']
         )
-        min_len = max_period + 10
+        min_len = max_period + 2
 
         if len(df_raw) < min_len:
-            # 返回原始数据 df_raw 以便绘图
             return "NEUTRAL", "数据预热中...", df_raw
 
         # 2. 计算指标
         df = self.calculate_indicators(df_raw)
         curr = df.iloc[-1]
+        prev = df.iloc[-2]  # 以此判断交叉
 
-        # --- 信号逻辑复刻 ---
+        # --- 信号逻辑优化 (放宽版) ---
 
-        # 趋势判断
+        # A. 趋势判断 (维持原样)
         sma_bull = curr['SMA_F'] > curr['SMA_S']
         sma_bear = curr['SMA_F'] < curr['SMA_S']
 
-        # 动量判断 (需处理 NaN)
-        macd_val = curr.get('MACD', 0)
-        macd_sig = curr.get('MACD_SIG', 0)
-        macd_bull = macd_val > macd_sig
-        macd_bear = macd_val < macd_sig
-
-        # 均值回归 (超买超卖)
-        # 使用 .get 以防指标计算失败
+        # B. 均值回归 (RSI / 布林带)
+        # 优化：RSI 不需要非得等到极端值(30/70)，适当放宽，或者是从极端值回归时介入
         rsi = curr.get('RSI', 50)
         bbl = curr.get('BBL', 0)
         bbu = curr.get('BBU', 999999)
 
-        rsi_oversold = rsi < self.params['rsi_os']
-        rsi_overbought = rsi > self.params['rsi_ob']
-        bb_lower_touch = curr['Close'] <= bbl
-        bb_upper_touch = curr['Close'] >= bbu
+        # 只要碰到轨道，或者 RSI 接近极端区域
+        rsi_buy_zone = rsi < (self.params['rsi_os'] + 5)  # 例如 < 35
+        rsi_sell_zone = rsi > (self.params['rsi_ob'] - 5)  # 例如 > 65
 
-        # 波动率过滤
-        vol = curr.get('vol', 0)
-        vol_ma = curr.get('vol_ma', 0)
+        bb_lower_touch = curr['Close'] <= bbl * 1.0005  # 给万分之5的容错
+        bb_upper_touch = curr['Close'] >= bbu * 0.9995
 
-        # 保护逻辑：如果 vol_ma 为 NaN (数据刚够算指标但不够算均线)，暂不强行过滤
-        if pd.isna(vol_ma) or vol_ma == 0:
-            is_volatile = True
-        else:
-            is_volatile = vol > (0.5 * vol_ma)
+        # C. 波动率过滤 (已移除！)
+        # 原因：Au99.99 分钟线有很多僵尸时间，波动率过滤会导致长期无信号
+        # vol = curr.get('vol', 0)
+        # vol_ma = curr.get('vol_ma', 0)
+        # is_volatile = ... (已注释)
 
         signal = "NEUTRAL"
         reasons = []
 
-        if not is_volatile:
-            return "NEUTRAL", f"波动率过低 (Vol:{vol:.5f})", df
-
-        # --- 买入逻辑 ---
-        if sma_bull and (rsi_oversold or bb_lower_touch) and macd_bull:
+        # --- 买入逻辑 (放宽) ---
+        # 逻辑：趋势向上 + (RSI低位 或 踩到布林下轨)
+        # 移除了 MACD 的强制要求，把它作为加分项
+        if sma_bull and (rsi_buy_zone or bb_lower_touch):
             signal = "BUY"
-            reasons.append("趋势向上")
-            if rsi_oversold: reasons.append(f"RSI超卖({rsi:.1f})")
+            reasons.append("多头趋势回调")
+            if rsi_buy_zone: reasons.append(f"RSI低位({rsi:.1f})")
             if bb_lower_touch: reasons.append("触布林下轨")
-            reasons.append("MACD动能增强")
 
-        # --- 卖出逻辑 ---
-        elif sma_bear and (rsi_overbought or bb_upper_touch) and macd_bear:
+            # MACD 仅作为参考理由
+            if curr.get('MACD', 0) > curr.get('MACD_SIG', 0):
+                reasons.append("MACD金叉")
+
+        # --- 卖出逻辑 (放宽) ---
+        elif sma_bear and (rsi_sell_zone or bb_upper_touch):
             signal = "SELL"
-            reasons.append("趋势向下")
-            if rsi_overbought: reasons.append(f"RSI超买({rsi:.1f})")
+            reasons.append("空头趋势反弹")
+            if rsi_sell_zone: reasons.append(f"RSI高位({rsi:.1f})")
             if bb_upper_touch: reasons.append("触布林上轨")
-            reasons.append("MACD动能减弱")
 
-        reason_str = " + ".join(reasons) if reasons else "无明确信号"
+        reason_str = " + ".join(reasons) if reasons else "等待机会"
         return signal, reason_str, df

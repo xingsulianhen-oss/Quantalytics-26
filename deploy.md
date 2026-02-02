@@ -1,0 +1,2 @@
+打包软件的命令
+pyinstaller --noconfirm --onedir --console --clean --name "Quantalytics_Gold" --hidden-import="talib.stream" --hidden-import="scipy.special._cdflib" --hidden-import="pyqtgraph.opengl" --collect-all="tbb" main_ui.py

@@ -17,7 +17,7 @@ GEMINI_MODEL = "models/gemini-2.5-flash"
 DEEPSEEK_MODEL = "deepseek-reasoner"
 
 # 3. LocalModel 配置
-LOCAL_LLM_MODEL = "qwen3:14b"
+LOCAL_LLM_MODEL = "qwen3:0.6b"
 
 
 # ===========================================
@@ -128,7 +128,7 @@ class AIAgent(QThread):
         ]
 
         # 1. 抓取英文源 (每个源抓前 10 条)
-        print("[AI Agent] 正在连接华尔街英文情报源...")
+        # print("[AI Agent] 正在连接华尔街英文情报源...")
         for source in rss_sources_en:
             try:
                 # 设置超时，防止连不上外网导致卡死
@@ -150,7 +150,7 @@ class AIAgent(QThread):
                     })
                     count += 1
                     if count >= 8: break  # 每个英文源只取最新 8 条
-                print(f"  -> {source['tag']} 获取成功: {count} 条")
+                # print(f"  -> {source['tag']} 获取成功: {count} 条")
             except Exception as e:
                 print(f"  -> {source['tag']} 解析错误: {e}")
 
@@ -194,7 +194,7 @@ class AIAgent(QThread):
         # 英文放前面
         unique_news.sort(key=lambda x: x['lang'] == 'cn')  # False(0) 在前，True(1) 在后 -> 英文在前
 
-        print(f"[AI Agent] 情报聚合完毕，共 {len(unique_news)} 条 (英文优先)。")
+        # print(f"[AI Agent] 情报聚合完毕，共 {len(unique_news)} 条 (英文优先)。")
         return unique_news[:35]
 
     def _filter_by_local_llm(self, news_list):
@@ -203,7 +203,7 @@ class AIAgent(QThread):
         """
         if not news_list: return []
 
-        print(f"[Local LLM] 正在筛选 {len(news_list)} 条新闻...")
+        # print(f"[Local LLM] 正在筛选 {len(news_list)} 条新闻...")
         high_value_news = []
 
         for news in news_list:
@@ -338,7 +338,7 @@ class AIAgent(QThread):
                     # 如果是周末，甚至可以打印个日志说"哨兵正在值班，无异常"
                     continue
 
-                print(f"[AI Agent] ⚡ 发现新情报！(阈值: >={score_threshold})")
+                # print(f"[AI Agent] ⚡ 发现新情报！(阈值: >={score_threshold})")
 
                 # === 4. 本地显卡初筛 ===
                 high_value_news = []
@@ -356,7 +356,7 @@ class AIAgent(QThread):
                     continue
 
                 # === 5. 云端专家委员会 (DeepSeek + Gemini) ===
-                print(f"[AI Agent] 提交 {len(high_value_news)} 条关键情报给云端...")
+                # print(f"[AI Agent] 提交 {len(high_value_news)} 条关键情报给云端...")
                 prompt = self._generate_prompt(high_value_news, "实盘")
 
                 text_ds = None

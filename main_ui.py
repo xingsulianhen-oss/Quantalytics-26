@@ -82,7 +82,7 @@ class TradingWorker(QThread):
         return is_night or is_morning or is_afternoon
 
     def run(self):
-        logging.info("[Worker] 交易线程启动，正在初始化数据...")
+        # logging.info("[Worker] 交易线程启动，正在初始化数据...")
         self.data_handler.initialize()
 
         if not self.data_handler.buffer.empty:
@@ -95,7 +95,7 @@ class TradingWorker(QThread):
 
             # 马上发给 UI，让用户看见图
             self.data_updated.emit(current_price, signal, reason, processed_df)
-            logging.info("[Worker] 首帧数据已发送至 UI")
+            # logging.info("[Worker] 首帧数据已发送至 UI")
 
         while self.is_running:
             # === 1. 交易时间检查 ===
@@ -629,6 +629,7 @@ class MainWindow(QMainWindow):
             logging.error(f"[System] 保存配置失败: {e}")
 
     def update_tech_ui(self, price, signal, reason, df):
+        print(f"update_tech_ui{self.current_ai_score},signal{signal}")
         """更新技术面图表 (专业版)"""
         self.current_price = price
         self.current_tech_signal = signal
@@ -719,6 +720,7 @@ class MainWindow(QMainWindow):
         """
         更新 AI 界面：显示带有本地打分的新闻列表 + 云端分析结果
         """
+        print(f"update_ai_ui{score}")
         self.current_ai_score = score
 
         # === 构建新闻列表 HTML (带分数) ===

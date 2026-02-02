@@ -177,55 +177,46 @@ class AdaptiveMomentumReversion(Strategy):
     def _check_trade_limit(self):
         """Check if we can place more trades today"""
         return self.daily_trades < self.max_trades_per_day
-    
+
     def _generate_signals(self):
         """
-        Multi-signal approach for better trade frequency while maintaining quality
+        宽松版信号生成逻辑 (与实盘 strategy_engine.py 保持一致)
         """
         p = self.data.Close[-1]
-        
-        # Trend identification
+
+        # 1. 趋势识别
         sma_bull = self.sma_f[-1] > self.sma_s[-1]
         sma_bear = self.sma_f[-1] < self.sma_s[-1]
-        
-        # RSI levels
-        rsi_oversold = self.rsi[-1] < self.rsi_os
-        rsi_overbought = self.rsi[-1] > self.rsi_ob
-        rsi_rising = len(self.rsi) > 2 and self.rsi[-1] > self.rsi[-2]
-        rsi_falling = len(self.rsi) > 2 and self.rsi[-1] < self.rsi[-2]
-        
-        # Bollinger Band touches
-        bb_lower_touch = p <= self.bb_lower[-1]
-        bb_upper_touch = p >= self.bb_upper[-1]
-        
-        # MACD momentum
+
+        # 2. RSI 区域 (放宽条件)
+        # 只要 RSI 进入买入区 (<35) 或卖出区 (>65) 即可，不必非要极端值
+        rsi_buy_zone = self.rsi[-1] < (self.rsi_os + 5)
+        rsi_sell_zone = self.rsi[-1] > (self.rsi_ob - 5)
+
+        # 3. 布林带触碰 (给予微小容错)
+        bb_lower_touch = p <= self.bb_lower[-1] * 1.0005
+        bb_upper_touch = p >= self.bb_upper[-1] * 0.9995
+
+        # 4. MACD 动能 (仅作为加分项，不强制)
         macd_bull = self.macd_line[-1] > self.macd_signal[-1]
         macd_bear = self.macd_line[-1] < self.macd_signal[-1]
-        
-        # Entry Signal Types:
-        # Type 1: Trend pullback (high quality)
-        trend_pullback_long = sma_bull and (rsi_oversold or bb_lower_touch) and macd_bull
-        trend_pullback_short = sma_bear and (rsi_overbought or bb_upper_touch) and macd_bear
-        
-        # Type 2: Strong mean reversion (moderate quality)
-        strong_mr_long = rsi_oversold and bb_lower_touch and rsi_rising
-        strong_mr_short = rsi_overbought and bb_upper_touch and rsi_falling
-        
-        # Type 3: Momentum continuation in trend (additional signals)
-        momentum_long = sma_bull and macd_bull and (self.rsi[-1] > 50) and bb_lower_touch
-        momentum_short = sma_bear and macd_bear and (self.rsi[-1] < 50) and bb_upper_touch
 
-        current_vol = self.vol[-1]
-        current_vol_ma = self.vol_ma[-1]
-        is_volatile = current_vol > (0.5 * current_vol_ma)
+        # --- 移除波动率过滤 ---
+        # 原逻辑：if not is_volatile: return False, False
+        # 现逻辑：直接移除，确保回测能跑出交易
 
-        if not is_volatile:
-            return False, False  # 波动率不足，不交易
+        # --- 生成信号 (宽松版) ---
+        long_signal = False
+        short_signal = False
 
-        # Combined signals
-        long_signal = trend_pullback_long or strong_mr_long or momentum_long
-        short_signal = trend_pullback_short or strong_mr_short or momentum_short
-        
+        # 买入：趋势向上 且 (RSI低位 或 触底)
+        if sma_bull and (rsi_buy_zone or bb_lower_touch):
+            long_signal = True
+
+        # 卖出：趋势向下 且 (RSI高位 或 触顶)
+        if sma_bear and (rsi_sell_zone or bb_upper_touch):
+            short_signal = True
+
         return long_signal, short_signal
     
     def next(self):

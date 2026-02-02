@@ -3,6 +3,7 @@ from backtesting import Backtest
 from strategy import AdaptiveMomentumReversion  # 确保目录下有 strategy.py
 from data_dispatcher import DataHandler
 import pandas as pd
+import numpy as np
 
 
 class OptimizerWorker(QThread):
@@ -45,13 +46,25 @@ class OptimizerWorker(QThread):
         # 必须指定 cash 和 commission，否则 backtesting 可能会报错
         bt = Backtest(df, AdaptiveMomentumReversion, cash=100000, commission=0.00002)
 
+        def robust_sharpe(stats):
+            # 1. 如果交易次数为 0，直接给负分
+            if stats['# Trades'] == 0:
+                return -1.0
+
+            # 2. 如果夏普比率是 nan，给 0 分
+            if np.isnan(stats['Sharpe Ratio']):
+                return 0.0
+
+            # 3. 正常返回
+            return stats['Sharpe Ratio']
+
         # 运行优化
         # 注意：这里的参数名必须和 strategy.py 里的变量名一致
         stats = bt.optimize(
             rsi_period=range(10, 25, 2),  # 10, 12... 24
             sma_slow=range(20, 60, 5),  # 20, 25... 55
             bb_period=range(15, 30, 3),  # 15, 18... 27
-            maximize='Sharpe Ratio',  # 目标：最大化夏普比率
+            maximize=robust_sharpe,  # 目标：最大化夏普比率
             return_heatmap=False,  # 不需要热力图，只要结果
             max_tries=200  # 限制尝试次数
         )
