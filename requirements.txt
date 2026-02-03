@@ -31,3 +31,5 @@ backtesting>=0.3.3
 
 # --- 机器学习 ---
 scikit-learn>=1.1.0
+requests
+yfinance

@@ -37,8 +37,13 @@ class PortfolioManager:
                 suggested_amount = base_buy * confidence_multiplier
                 reason = f"技术金叉 + AI看多({ai_score}分)，建议积极加仓。"
             else:
-                suggested_amount = base_buy * 0.5
-                reason = f"技术看涨但AI看空({ai_score}分)，建议小额试仓。"
+                if ai_score < -2:
+                    suggested_amount = 0.0
+                    reason = f"技术看涨但 AI 严重看空({ai_score}分)，建议空仓避险！"
+                    return "观望", 0.0, reason  # 直接返回观望
+                else:
+                    suggested_amount = base_buy * 0.5
+                    reason = f"技术看涨但 AI 微弱分歧({ai_score}分)，建议减半试仓。"
 
             amount = min(suggested_amount, cash_balance)
 

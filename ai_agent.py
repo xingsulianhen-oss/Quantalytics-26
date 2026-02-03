@@ -17,7 +17,7 @@ GEMINI_MODEL = "models/gemini-2.5-flash"
 DEEPSEEK_MODEL = "deepseek-reasoner"
 
 # 3. LocalModel 配置
-LOCAL_LLM_MODEL = "qwen3:0.6b"
+LOCAL_LLM_MODEL = "qwen3:14b"
 
 
 # ===========================================

@@ -695,22 +695,59 @@ class MainWindow(QMainWindow):
 
         # === 邮件通知逻辑 ===
         # 1. 信号发生变化 (从无到有，或反转)
+        # === 邮件通知逻辑 (修复版：加入 AI 熔断机制) ===
         if signal in ["BUY", "SELL"] and signal != self.last_notified_signal:
-            # 构造漂亮的 HTML 内容
-            color = "green" if signal == "BUY" else "red"
-            html_content = f"""
-                    <h2>Quantalytics 交易信号提醒</h2>
-                    <p><b>时间:</b> {datetime.datetime.now().strftime('%H:%M:%S')}</p>
-                    <p><b>标的:</b> Au99.99</p>
-                    <p><b>价格:</b> {price}</p>
-                    <p style="font-size: 20px;"><b>信号: <span style="color:{color}">{signal}</span></b></p>
-                    <p><b>理由:</b> {reason}</p>
-                    <hr>
-                    <p>请及时查看盘面确认。</p>
-                    """
 
-            self.notifier.send_email(f"【{signal}】黄金交易信号提醒", html_content)
-            self.last_notified_signal = signal  # 记住这次发过了
+            # --- AI 一票否决检查 ---
+            is_vetoed = False
+            veto_reason = ""
+
+            # 1. AI 极度看空 (-5分以下)，但技术面出 BUY
+            if signal == "BUY" and self.current_ai_score <= -5:
+                is_vetoed = True
+                veto_reason = f"AI 情绪极度悲观 ({self.current_ai_score}分)，买入信号已熔断。"
+
+            # 2. AI 极度看多 (+5分以上)，但技术面出 SELL
+            elif signal == "SELL" and self.current_ai_score >= 5:
+                is_vetoed = True
+                veto_reason = f"AI 情绪极度乐观 ({self.current_ai_score}分)，卖出信号已熔断。"
+
+            # --- 发送逻辑分流 ---
+            if is_vetoed:
+                # 方案 A: 直接不发邮件 (静默)
+                # print(f"[Risk Control] {veto_reason}")
+
+                # 方案 B: 发送一封“信号被拦截”的通知 (建议选这个，让你知道发生了什么)
+                veto_html = f"""
+                        <h2 style="color: red;">⚠️ 交易信号已拦截</h2>
+                        <p><b>原信号:</b> {signal}</p>
+                        <p><b>拦截原因:</b> {veto_reason}</p>
+                        <p><b>当前 AI 分:</b> {self.current_ai_score}</p>
+                        <p><i>系统已自动取消该次操作建议。</i></p>
+                        """
+                self.notifier.send_email(f"【拦截】高风险 {signal} 信号", veto_html)
+
+            else:
+                # 只有未被否决时，才发送正常的交易提醒
+                color = "green" if signal == "BUY" else "red"
+
+                # 顺便把 AI 意见也写进交易邮件里，方便你决策
+                ai_advice_str = f"AI 同步看多 ({self.current_ai_score}分)" if (
+                            signal == "BUY" and self.current_ai_score > 0) else \
+                    f"AI 存在分歧 ({self.current_ai_score}分)"
+
+                html_content = f"""
+                                <h2>Quantalytics 交易信号提醒</h2>
+                                <p><b>时间:</b> {datetime.datetime.now().strftime('%H:%M:%S')}</p>
+                                <p><b>价格:</b> {price}</p>
+                                <p style="font-size: 20px;"><b>技术信号: <span style="color:{color}">{signal}</span></b></p>
+                                <p><b>AI 参考:</b> {ai_advice_str}</p>
+                                <p><b>技术理由:</b> {reason}</p>
+                                <hr>
+                                """
+                self.notifier.send_email(f"【{signal}】黄金交易信号 ({ai_advice_str})", html_content)
+
+            self.last_notified_signal = signal
 
         # 如果信号消失变回 NEUTRAL，重置状态
         if signal == "NEUTRAL":
