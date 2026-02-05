@@ -2,135 +2,165 @@ import pandas as pd
 import akshare as ak
 import datetime
 import time
-import os  # 用于文件路径判断
+import os
+import atexit
+import requests
+
+# === Selenium 依赖 ===
+from selenium import webdriver
+from selenium.webdriver.edge.service import Service
+from selenium.webdriver.edge.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
 
 class DataHandler:
     """
-    数据调度员 (SGE 上海黄金交易所版 + 本地缓存增强版)
+    数据调度员 (终极融合版：历史底仓 + 实时爬虫驻留)
     """
 
-    def __init__(self, max_len=1000):
+    def __init__(self, max_len=3000):
+        # 扩容缓冲区至 3000，以容纳 15分钟级别的月度历史数据
         self.max_len = max_len
-        self.symbol = "Au99.99"  # 支付宝黄金的标的物
+        self.symbol = "Au99.99"
         self.buffer = pd.DataFrame()
-
-        # 定义缓存文件路径 (保存在当前目录下)
         self.cache_file = "gold_price_cache.csv"
+        self.last_request_time = 0
+
+        # === 爬虫专用状态 ===
+        self.driver = None
+        self.crawler_url = "https://finance.sina.com.cn/futures/quotes/AUTD.shtml"
+
+        # 注册退出时的清理函数
+        atexit.register(self.close_driver)
+
+    def _init_driver(self):
+        """启动驻留式隐形浏览器"""
+        if self.driver is not None:
+            return
+
+        print("[DataHandler] 正在启动后台 Edge 浏览器引擎...")
+        try:
+            edge_options = Options()
+            edge_options.add_argument("--headless")  # 无头模式 (生产环境建议开启)
+            edge_options.add_argument("--disable-gpu")
+            edge_options.add_argument("--no-sandbox")
+            edge_options.add_argument("--log-level=3")
+
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            driver_path = os.path.join(current_dir, "msedgedriver.exe")
+
+            if not os.path.exists(driver_path):
+                print(f"❌ 严重错误: 未找到驱动 {driver_path}")
+                return
+
+            service = Service(executable_path=driver_path)
+            self.driver = webdriver.Edge(service=service, options=edge_options)
+
+            # 预加载页面
+            self.driver.get(self.crawler_url)
+            print("[DataHandler] ✅ 爬虫引擎启动就绪")
+
+        except Exception as e:
+            print(f"[DataHandler] ❌ 爬虫启动失败: {e}")
+            self.driver = None
+
+    def close_driver(self):
+        if self.driver:
+            try:
+                self.driver.quit()
+                self.driver = None
+            except:
+                pass
+
+    def _fetch_from_crawler(self):
+        """
+        渠道C: Selenium 网页爬虫 (修正版：span.real-price)
+        """
+        if self.driver is None:
+            self._init_driver()
+            if self.driver is None: return None
+
+        try:
+            wait = WebDriverWait(self.driver, 5)
+
+            # 刷新以确保数据最新
+            self.driver.refresh()
+
+            # 使用您验证成功的 CSS Selector
+            element = wait.until(EC.presence_of_element_located(
+                (By.CSS_SELECTOR, "span.real-price")
+            ))
+            price_text = element.text
+
+            if not price_text: return None
+
+            price_text = price_text.replace(',', '')
+            price = float(price_text)
+
+            # 使用系统时间对齐 K 线
+            dt = datetime.datetime.now().replace(microsecond=0)
+
+            return price, dt
+
+        except Exception as e:
+            # print(f"[Crawler] 读取微小波动: {e}")
+            return None
 
     def _fetch_intraday_data(self):
-        try:
-            # 1. 获取数据
-            df = ak.spot_quotations_sge(symbol=self.symbol)
-            if df.empty:
-                return pd.DataFrame()
+        """获取实时数据 (优先爬虫，备用SGE)"""
+        now = time.time()
+        if now - self.last_request_time < 2:
+            time.sleep(1)
+        self.last_request_time = time.time()
 
-            # 2. 重命名
-            df.rename(columns={'现价': 'Close', '时间': 'Time_Str'}, inplace=True)
+        price = None
+        dt = None
+        source_used = "None"
 
-            # 3. 处理时间
-            today_str = datetime.date.today().strftime('%Y-%m-%d')
-            df['Datetime'] = pd.to_datetime(today_str + ' ' + df['Time_Str'].astype(str))
+        # 1. 爬虫 (Selenium)
+        res_crawler = self._fetch_from_crawler()
+        if res_crawler:
+            price, dt = res_crawler
+            source_used = "Selenium"
 
-            # 4. 设置索引并排序
-            df.set_index('Datetime', inplace=True)
-            df.sort_index(inplace=True)
-
-            # === 核心修复：构造“合成 K 线” ===
-
-            # 1. Open (开盘价) = 上一分钟的 Close (收盘价)
-            # 这样就能形成连续的 K 线，且能体现涨跌颜色
-            df['Open'] = df['Close'].shift(1)
-
-            # 2. 修正第一行 (第一行没有“上一分钟”，只能 Open=Close)
-            df['Open'] = df['Open'].fillna(df['Close'])
-
-            # 3. High (最高价) = max(Open, Close)
-            # 因为我们只有头尾两个点，只能假设最高价就是这俩里面高的那个
-            df['High'] = df[['Open', 'Close']].max(axis=1)
-
-            # 4. Low (最低价) = min(Open, Close)
-            df['Low'] = df[['Open', 'Close']].min(axis=1)
-
-            # 5. Volume (成交量)
-            df['Volume'] = 0
-
-            return df[['Open', 'High', 'Low', 'Close', 'Volume']]
-
-        except Exception as e:
-            print(f"[DataHandler] 网络数据清洗出错: {e}")
-            return pd.DataFrame()
-
-    def _save_to_cache(self):
-        """将当前缓冲区保存到 CSV"""
-        if not self.buffer.empty:
+        # 2. SGE 官方 (备用)
+        if price is None:
             try:
-                # 实时写入，覆盖旧文件
-                self.buffer.to_csv(self.cache_file)
-            except Exception as e:
-                print(f"[DataHandler] 缓存写入失败: {e}")
+                df = ak.spot_quotations_sge(symbol=self.symbol)
+                if df is not None and not df.empty and '最新价' in df.columns:
+                    price = float(df['最新价'].iloc[0])
+                    dt = datetime.datetime.now()
+                    source_used = "SGE API"
+            except:
+                pass
 
-    def _load_from_cache(self):
-        """从 CSV 读取缓存数据"""
-        if not os.path.exists(self.cache_file):
-            return pd.DataFrame()
+        if price is None:
+            return pd.DataFrame(), source_used
 
         try:
-            print(f"[DataHandler] 正在尝试读取本地缓存: {self.cache_file} ...")
-            # index_col=0 表示第一列是索引(时间)，parse_dates=True 自动解析时间格式
-            df = pd.read_csv(self.cache_file, index_col=0, parse_dates=True)
-            return df
-        except Exception as e:
-            print(f"[DataHandler] 缓存读取失败: {e}")
-            return pd.DataFrame()
-
-    def initialize(self):
-        """
-        智能启动流程：
-        1. 尝试拉取网络数据 (Priority 1)
-        2. 如果失败，尝试加载本地缓存 (Priority 2)
-        3. 无论哪种成功，都保存/更新一次缓存
-        """
-        print(f"[DataHandler] 正在初始化 {self.symbol} 数据...")
-
-        # 1. 尝试网络请求
-        df = self._fetch_intraday_data()
-
-        if not df.empty:
-            print("[DataHandler] ✅ 网络热启动成功!")
-            self.buffer = df.tail(self.max_len)
-            # 既然拿到了新数据，立刻刷新缓存
-            self._save_to_cache()
-        else:
-            print("[DataHandler] ⚠️ 网络获取失败 (休市或网络异常)，转入断点续传模式...")
-            # 2. 尝试读取缓存
-            cached_df = self._load_from_cache()
-            if not cached_df.empty:
-                print(f"[DataHandler] ✅ 本地缓存加载成功! 恢复了 {len(cached_df)} 条数据。")
-                print(f"[DataHandler] 缓存最新时间: {cached_df.index[-1]}")
-                self.buffer = cached_df.tail(self.max_len)
-            else:
-                print("[DataHandler] ❌ 本地缓存也为空。进入冷启动等待模式。")
-
-        if not self.buffer.empty:
-            price = self.buffer.iloc[-1]['Close']
-            print(f"[DataHandler] 当前基准价格: ¥{price}/克")
-
-    def fetch_realtime_price(self):
-        """获取最新价格 (网络优先)"""
-        df = self._fetch_intraday_data()
-        if not df.empty:
-            return float(df.iloc[-1]['Close'])
-
-        # 如果网络断了，暂时不返回缓存的旧价格，以免误导交易
-        # 这里返回 None，UI 线程会暂时休眠等待网络恢复
-        return None
+            df = pd.DataFrame({
+                'Open': [price],
+                'High': [price],
+                'Low': [price],
+                'Close': [price],
+                'Volume': [0]
+            }, index=[dt])
+            return df, source_used
+        except Exception:
+            return pd.DataFrame(), source_used
 
     def fetch_long_history(self, days=30):
-        """[参数优化专用] 获取长历史数据 (Au0 期货)"""
+        """
+        获取历史数据
+        注意：使用黄金期货主力(Au0)的15分钟线作为历史底仓
+        原因：spot_hist_sge 是日线数据，无法用于分钟级技术分析。
+             Au0 15分钟线既提供了足够长的历史视窗，又能与实时分钟线平滑衔接。
+        """
         try:
-            print(f"[DataHandler] 正在拉取过去 {days} 天的历史数据 (Au0)...")
-            df = ak.futures_zh_minute_sina(symbol="au0", period="15")
+            # period="15" -> 15分钟级别
+            df = ak.futures_zh_minute_sina(symbol="au0", period="1")
             df.rename(columns={'datetime': 'Datetime', 'open': 'Open', 'high': 'High',
                                'low': 'Low', 'close': 'Close', 'volume': 'Volume'}, inplace=True)
             df['Datetime'] = pd.to_datetime(df['Datetime'])
@@ -138,23 +168,22 @@ class DataHandler:
             cols = ['Open', 'High', 'Low', 'Close', 'Volume']
             df[cols] = df[cols].apply(pd.to_numeric, errors='coerce')
             return df
-        except Exception as e:
-            print(f"[DataHandler] 历史数据获取失败: {e}")
+        except Exception:
             return pd.DataFrame()
 
     def update_tick(self, current_price):
-        """
-        更新 K 线 + 自动保存缓存
-        """
-        if current_price is None:
-            return self.buffer
+        """更新 K 线 (核心：向前平移时间轴)"""
+        if current_price is None: return self.buffer
 
         now = datetime.datetime.now().replace(second=0, microsecond=0)
 
-        # 1. 新的一分钟 -> 创建新行
+        # 1. 新的一分钟 -> 追加新行
         if self.buffer.empty or self.buffer.index[-1] != now:
+            open_price = current_price
+            if not self.buffer.empty: open_price = self.buffer.iloc[-1]['Close']
+
             new_row = pd.DataFrame({
-                'Open': [current_price],
+                'Open': [open_price],
                 'High': [current_price],
                 'Low': [current_price],
                 'Close': [current_price],
@@ -163,21 +192,93 @@ class DataHandler:
 
             self.buffer = pd.concat([self.buffer, new_row])
 
-            # 保持缓冲区大小
+            # 保持缓冲区长度，实现"向前平移" (挤掉最旧的数据)
             if len(self.buffer) > self.max_len:
                 self.buffer = self.buffer.iloc[-self.max_len:]
 
-        # 2. 同一分钟 -> 更新当前 K 线
+        # 2. 同一分钟 -> 更新 High/Low/Close
         else:
             last_idx = self.buffer.index[-1]
+            self.buffer.at[last_idx, 'Close'] = current_price
             if current_price > self.buffer.at[last_idx, 'High']:
                 self.buffer.at[last_idx, 'High'] = current_price
             if current_price < self.buffer.at[last_idx, 'Low']:
                 self.buffer.at[last_idx, 'Low'] = current_price
-            self.buffer.at[last_idx, 'Close'] = current_price
 
-        # === 核心修改：每次更新数据后，立刻写入硬盘 ===
-        # 考虑到只有几百行数据，写入速度极快(毫秒级)，不会阻塞 UI
+        self._save_to_cache()
+        return self.buffer
+
+    def _save_to_cache(self):
+        if not self.buffer.empty:
+            try:
+                self.buffer.to_csv(self.cache_file)
+            except:
+                pass
+
+    def _load_from_cache(self):
+        if not os.path.exists(self.cache_file): return pd.DataFrame()
+        try:
+            return pd.read_csv(self.cache_file, index_col=0, parse_dates=True)
+        except:
+            return pd.DataFrame()
+
+    def initialize(self):
+        """
+        初始化流程 (修复版：先加载历史，再接实时)
+        """
+        print(f"[DataHandler] 正在初始化数据引擎 ({self.symbol})...")
+        self._init_driver()  # 预启动爬虫
+
+        # === 步骤1: 加载历史底仓 (解决只有几个点的问题) ===
+        # 优先从 akshare 获取近期的 15分钟 K 线，构建完美的技术分析底图
+        try:
+            print("[DataHandler] 正在构建历史 K 线底仓 (基于 Au0 期货)...")
+            history_df = self.fetch_long_history(days=30)
+
+            if not history_df.empty:
+                self.buffer = history_df
+                print(f"[DataHandler] ✅ 历史数据构建完成: {len(self.buffer)} 根 K 线")
+            else:
+                # 如果没网，尝试读本地缓存
+                print("[DataHandler] ⚠️ 在线历史获取失败，加载本地缓存...")
+                self.buffer = self._load_from_cache()
+
+        except Exception as e:
+            print(f"[DataHandler] 历史初始化异常: {e}")
+            self.buffer = self._load_from_cache()
+
+        # === 步骤2: 获取当前实时价格 ===
+        realtime_df, src = self._fetch_intraday_data()
+
+        if not realtime_df.empty:
+            print(f"[DataHandler] ✅ 实时连接成功! 来源: {src}")
+            current_price = realtime_df.iloc[-1]['Close']
+
+            # === 步骤3: 无缝拼接 ===
+            # 将最新的实时价格，通过 update_tick 追加到历史数据的末尾
+            # 这样界面上就会显示：[长长的历史曲线] --- [跳动的实时点]
+            self.update_tick(current_price)
+        else:
+            print("[DataHandler] ⚠️ 实时数据暂不可用，等待下一轮更新...")
+
+        # 再次保存，确保下次启动有数据
         self._save_to_cache()
 
-        return self.buffer
+    def fetch_realtime_price(self):
+        df, src = self._fetch_intraday_data()
+        if not df.empty:
+            return float(df.iloc[-1]['Close'])
+        return None
+
+
+if __name__ == "__main__":
+    handler = DataHandler()
+    handler.initialize()
+    print(f"当前缓冲区长度: {len(handler.buffer)}")
+    print("测试 5 次连续抓取:")
+    for i in range(5):
+        p = handler.fetch_realtime_price()
+        print(f"[{i + 1}] {p}")
+        handler.update_tick(p)
+        time.sleep(2)
+    handler.close_driver()

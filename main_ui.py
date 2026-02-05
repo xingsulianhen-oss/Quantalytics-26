@@ -40,46 +40,22 @@ class TradingWorker(QThread):
 
     def is_trading_time(self):
         """
-        判断当前是否为上海黄金交易所 (SGE) 的交易时间
-        早盘: 09:00-11:30
-        午盘: 13:30-15:30
-        夜盘: 20:00-02:30 (次日)
+        [积存金专用] 交易时间判断
+        时间: 周一到周五 09:00 - 22:00 (连续交易，无午休)
         """
         now = datetime.datetime.now()
         t = now.time()
         wd = now.weekday()  # 0=周一, 6=周日
 
-        # 定义时间节点
-        t_02_30 = datetime.time(2, 30)
-        t_09_00 = datetime.time(9, 0)
-        t_11_30 = datetime.time(11, 30)
-        t_13_30 = datetime.time(13, 30)
-        t_15_30 = datetime.time(15, 30)
-        t_20_00 = datetime.time(20, 0)
-
-        # 1. 排除周末大休市
-        # 周六：02:30 之后休市
-        if wd == 5 and t > t_02_30:
-            return False
-        # 周日：全天休市
-        if wd == 6:
-            return False
-        # 周一：早盘前 (09:00前) 没有夜盘延续，休市
-        if wd == 0 and t < t_09_00:
+        # 1. 周六、周日休市
+        if wd >= 5:
             return False
 
-        # 2. 判断具体时段
-        # 夜盘 (20:00 - 24:00 或 00:00 - 02:30)
-        # 注意：这里不用管周一凌晨，因为上面已经排除了
-        is_night = (t >= t_20_00) or (t < t_02_30)
+        # 2. 判断时间范围 (早9点 - 晚10点)
+        t_start = datetime.time(9, 0)
+        t_end = datetime.time(22, 0)
 
-        # 早盘
-        is_morning = (t >= t_09_00) and (t < t_11_30)
-
-        # 午盘
-        is_afternoon = (t >= t_13_30) and (t < t_15_30)
-
-        return is_night or is_morning or is_afternoon
+        return t_start <= t <= t_end
 
     def run(self):
         # logging.info("[Worker] 交易线程启动，正在初始化数据...")
@@ -520,31 +496,14 @@ class MainWindow(QMainWindow):
         t = now.time()
         wd = now.weekday()  # 0=周一, 6=周日
 
-        # 定义关键时间点
-        t_02_30 = datetime.time(2, 30)
-        t_09_00 = datetime.time(9, 0)
-        t_11_30 = datetime.time(11, 30)
-        t_13_30 = datetime.time(13, 30)
-        t_15_30 = datetime.time(15, 30)
-        t_20_00 = datetime.time(20, 0)
-
         is_trading = False
 
-        # --- 复用交易时间判断逻辑 ---
-        # 1. 周末判断
-        if wd == 5 and t > t_02_30:
-            is_trading = False  # 周六凌晨2:30后休市
-        elif wd == 6:
-            is_trading = False  # 周日全天休市
-        elif wd == 0 and t < t_09_00:
-            is_trading = False  # 周一早盘前休市
-        else:
-            # 2. 时段判断
-            is_night = (t >= t_20_00) or (t < t_02_30)
-            is_morning = (t >= t_09_00) and (t < t_11_30)
-            is_afternoon = (t >= t_13_30) and (t < t_15_30)
-
-            if is_night or is_morning or is_afternoon:
+        # === 积存金交易时间逻辑 ===
+        # 周一到周五 (wd < 5) 且 时间在 09:00 - 22:00 之间
+        if wd < 5:
+            t_start = datetime.time(9, 0)
+            t_end = datetime.time(22, 0)
+            if t_start <= t <= t_end:
                 is_trading = True
 
         # --- 更新 UI 样式 ---
@@ -629,7 +588,6 @@ class MainWindow(QMainWindow):
             logging.error(f"[System] 保存配置失败: {e}")
 
     def update_tech_ui(self, price, signal, reason, df):
-        print(f"update_tech_ui{self.current_ai_score},signal{signal}")
         """更新技术面图表 (专业版)"""
         self.current_price = price
         self.current_tech_signal = signal
@@ -729,6 +687,20 @@ class MainWindow(QMainWindow):
 
             else:
                 # 只有未被否决时，才发送正常的交易提醒
+                # --- B. 计算建议金额 ---
+                try:
+                    # 从界面输入框获取当前的持仓和现金
+                    # 这样计算出来的金额就和界面上 lbl_amount 显示的一模一样了
+                    current_holdings = float(self.input_holdings.text() or 0)
+                    current_cash = float(self.input_cash.text() or 0)
+                except:
+                    current_holdings = 0.0
+                    current_cash = 0.0
+
+                # 调用 PortfolioManager 现场计算
+                pm_action, pm_amount, pm_reason = self.portfolio_manager.calculate_suggestion(
+                    current_holdings, current_cash, signal, self.current_ai_score, price
+                )
                 color = "green" if signal == "BUY" else "red"
 
                 # 顺便把 AI 意见也写进交易邮件里，方便你决策
@@ -737,15 +709,29 @@ class MainWindow(QMainWindow):
                     f"AI 存在分歧 ({self.current_ai_score}分)"
 
                 html_content = f"""
-                                <h2>Quantalytics 交易信号提醒</h2>
-                                <p><b>时间:</b> {datetime.datetime.now().strftime('%H:%M:%S')}</p>
-                                <p><b>价格:</b> {price}</p>
-                                <p style="font-size: 20px;"><b>技术信号: <span style="color:{color}">{signal}</span></b></p>
-                                <p><b>AI 参考:</b> {ai_advice_str}</p>
-                                <p><b>技术理由:</b> {reason}</p>
-                                <hr>
-                                """
-                self.notifier.send_email(f"【{signal}】黄金交易信号 ({ai_advice_str})", html_content)
+                    <h2>Quantalytics 交易信号提醒</h2>
+                    <p><b>时间:</b> {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+                    <p><b>最新金价:</b> <span style="font-size: 16px;">¥{price:.2f}</span></p>
+                    <hr>
+                    <p style="font-size: 22px;"><b>技术信号: <span style="color:{color}">{signal}</span></b></p>
+
+                    <div style="background-color: #f8f9fa; border-left: 5px solid {color}; padding: 10px; margin: 10px 0;">
+                        <p style="margin: 0; font-size: 14px; color: #666;">策略建议 ({pm_action}):</p>
+                        <p style="margin: 5px 0 0 0; font-size: 24px; font-weight: bold; color: #333;">
+                            ¥ {pm_amount:,.2f}
+                        </p>
+                        <p style="margin: 5px 0 0 0; font-size: 12px; color: #888;">{pm_reason}</p>
+                    </div>
+
+                    <p><b>AI 参考:</b> {ai_advice_str}</p>
+                    <p><b>技术理由:</b> {reason}</p>
+                    <hr>
+                    <p style="font-size: 12px; color: #aaa;">此邮件仅供参考，请结合实际情况操作。</p>
+                    """
+
+                # 发送邮件，标题带上金额
+                subject_amount = f"¥{int(pm_amount)}" if pm_amount > 0 else "观望"
+                self.notifier.send_email(f"【{signal}】建议{pm_action}: {subject_amount}", html_content)
 
             self.last_notified_signal = signal
 
@@ -885,36 +871,41 @@ class MainWindow(QMainWindow):
         self.txt_tech_detail.setText(msg)
 
     def on_mouse_moved(self, pos):
-        """鼠标移动事件 (去断层适配版)"""
+        """鼠标移动事件 (已修改：显示完整年月日时分秒)"""
         if self.df_cache is None or self.df_cache.empty:
             return
 
         view_box = self.plot_widget.plotItem.vb
         if view_box.sceneBoundingRect().contains(pos):
             mouse_point = view_box.mapSceneToView(pos)
-            x_val = mouse_point.x()  # 这里的 x_val 现在是整数索引 (如 10.5)
+            x_val = mouse_point.x()
             y_val = mouse_point.y()
 
-            # === 修改逻辑：直接四舍五入获取索引 ===
+            # 直接四舍五入获取索引
             idx = int(round(x_val))
 
-            # 边界保护：防止鼠标移出数据范围报错
+            # 边界保护
             if idx < 0: idx = 0
             if idx >= len(self.df_cache): idx = len(self.df_cache) - 1
 
-            # 直接按位置取数据，不需要 numpy 查时间了，超级快！
+            # 取数据
             target_row = self.df_cache.iloc[idx]
             target_time = self.df_cache.index[idx]
 
-            # 更新十字线 (吸附到整数索引上)
+            # 更新十字线
             self.v_line.setPos(idx)
             self.h_line.setPos(y_val)
 
-            # 构造文本
+            # 构造文本 (修改了时间格式)
             color = "#ff4444" if target_row['Close'] >= target_row['Open'] else "#00cc00"
+
+            # --- 修改开始: 将 strftime('%H:%M') 改为 strftime('%Y-%m-%d %H:%M:%S') ---
+            time_str = target_time.strftime('%Y-%m-%d %H:%M:%S')
+            # ---------------------------------------------------------------------
+
             info_html = f"""
             <div style='color: #eee; font-size: 12px; font-weight: bold;'>
-                <span style='color: #aaa;'>时间:</span> {target_time.strftime('%H:%M')}<br>
+                <span style='color: #aaa;'>时间:</span> {time_str}<br>
                 <span style='color: #aaa;'>开盘:</span> <span style='color: {color};'>{target_row['Open']:.2f}</span><br>
                 <span style='color: #aaa;'>最高:</span> <span style='color: {color};'>{target_row['High']:.2f}</span><br>
                 <span style='color: #aaa;'>最低:</span> <span style='color: {color};'>{target_row['Low']:.2f}</span><br>

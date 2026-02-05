@@ -17,7 +17,7 @@ GEMINI_MODEL = "models/gemini-2.5-flash"
 DEEPSEEK_MODEL = "deepseek-reasoner"
 
 # 3. LocalModel 配置
-LOCAL_LLM_MODEL = "qwen3:14b"
+LOCAL_LLM_MODEL = "qwen3:8b"
 
 
 # ===========================================
@@ -391,8 +391,8 @@ class AIAgent(QThread):
                         f"【混合智能决策】加权分: {final_score}\n"
                         f"本地筛选: {len(raw_news)} -> {len(high_value_news)} 条\n"
                         f"{'-' * 30}\n"
-                        f"🦅 [DeepSeek]: {score_ds} 分\n{text_ds[:200]}...\n\n"  # 只截取前200字展示
-                        f"🌍 [Gemini]: {score_gemini} 分\n{text_gemini[:200]}..."
+                        f"🦅 [DeepSeek]: {score_ds} 分\n{text_ds}\n\n"
+                        f"🌍 [Gemini]: {score_gemini} 分\n{text_gemini}"
                     )
 
                 # 情况 B: 只有 DeepSeek

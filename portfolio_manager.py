@@ -47,17 +47,9 @@ class PortfolioManager:
 
             amount = min(suggested_amount, cash_balance)
 
-            # === 新增：利用 current_price 检查最小购买量 ===
-            # 假设最小交易单位是 1g
-            min_cost = current_price * 1.0
-            if amount < min_cost:
-                # 如果钱不够买 1g，那就不买了
-                amount = 0.0
-                reason = f"建议金额不足购买 1g (需 {min_cost:.2f}元)，取消建议。"
-            else:
-                # 计算大概能买多少克 (仅作展示)
-                grams = amount / current_price
-                reason += f" (约 {grams:.2f} 克)"
+            # 计算大概能买多少克 (仅作展示)
+            grams = amount / current_price
+            reason += f" (约 {grams:.2f} 克)"
 
         # --- 卖出逻辑 ---
         elif signal == "SELL":
